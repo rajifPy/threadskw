@@ -11,9 +11,24 @@ function LoginForm() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
+  const [checking, setChecking] = useState(true)
   const router = useRouter()
   const searchParams = useSearchParams()
   const supabase = createClient()
+
+  // Check if already logged in
+  useEffect(() => {
+    const checkSession = async () => {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (session) {
+        console.log('[Login] Already logged in, redirecting...')
+        router.replace('/')
+      } else {
+        setChecking(false)
+      }
+    }
+    checkSession()
+  }, [])
 
   // Show error message if redirected with error
   useEffect(() => {
@@ -23,11 +38,20 @@ function LoginForm() {
     }
   }, [searchParams])
 
+  if (checking) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary-500"></div>
+      </div>
+    )
+  }
+
   const handleEmailLogin = async (e: React.FormEvent) => {
     e.preventDefault()
     setLoading(true)
 
     try {
+      console.log('[Login] Attempting login...')
       const { data, error } = await supabase.auth.signInWithPassword({
         email,
         password,
@@ -35,18 +59,14 @@ function LoginForm() {
 
       if (error) throw error
 
-      console.log('Login successful:', data.user?.email)
+      console.log('[Login] Login successful:', data.user?.email)
       toast.success('Login berhasil!')
       
-      // Wait a bit for auth state to update
-      setTimeout(() => {
-        router.push('/')
-        router.refresh()
-      }, 500)
+      // Force reload to clear any cached state
+      window.location.href = '/'
     } catch (error: any) {
-      console.error('Login error:', error)
+      console.error('[Login] Login error:', error)
       
-      // Friendly error messages
       let errorMessage = 'Login gagal'
       if (error.message.includes('Invalid login credentials')) {
         errorMessage = 'Email atau password salah'
@@ -61,10 +81,11 @@ function LoginForm() {
 
   const handleGoogleLogin = async () => {
     try {
-      const origin = typeof window !== 'undefined' ? window.location.origin : ''
+      console.log('[Login] Starting Google OAuth...')
+      const origin = window.location.origin
       const redirectTo = `${origin}/auth/callback`
       
-      console.log('Initiating Google login with redirect:', redirectTo)
+      console.log('[Login] Redirect URL:', redirectTo)
       
       const { error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
@@ -77,10 +98,13 @@ function LoginForm() {
         },
       })
 
-      if (error) throw error
+      if (error) {
+        console.error('[Login] Google OAuth error:', error)
+        throw error
+      }
     } catch (error: any) {
-      console.error('Google login error:', error)
-      toast.error('Login dengan Google gagal')
+      console.error('[Login] Google login failed:', error)
+      toast.error('Login dengan Google gagal: ' + error.message)
     }
   }
 
