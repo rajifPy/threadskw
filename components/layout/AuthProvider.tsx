@@ -33,12 +33,47 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const [profile, setProfile] = useState<Profile | null>(null)
   const [loading, setLoading] = useState(true)
-  const [initialized, setInitialized] = useState(false)
+  const [retryCount, setRetryCount] = useState(0)
   const supabase = createClient()
 
-  const fetchProfile = useCallback(async (userId: string) => {
+  const createProfileForUser = async (userId: string, userMetadata: any) => {
     try {
-      console.log('[AuthProvider] Fetching profile for user:', userId)
+      console.log('[AuthProvider] Creating profile for user:', userId)
+      
+      const username = (
+        userMetadata?.username ||
+        userMetadata?.preferred_username ||
+        userMetadata?.email?.split('@')[0] ||
+        `user_${userId.substring(0, 8)}`
+      ).toLowerCase().replace(/[^a-z0-9_]/g, '_')
+
+      const { data, error } = await supabase
+        .from('profiles')
+        .insert({
+          id: userId,
+          username: username,
+          full_name: userMetadata?.full_name || userMetadata?.name || null,
+          avatar_url: userMetadata?.avatar_url || userMetadata?.picture || null,
+        })
+        .select()
+        .single()
+
+      if (error) {
+        console.error('[AuthProvider] Error creating profile:', error)
+        return null
+      }
+
+      console.log('[AuthProvider] Profile created successfully:', data)
+      return data as Profile
+    } catch (error) {
+      console.error('[AuthProvider] Exception creating profile:', error)
+      return null
+    }
+  }
+
+  const fetchProfile = useCallback(async (userId: string, userMetadata?: any, attempt = 1): Promise<Profile | null> => {
+    try {
+      console.log(`[AuthProvider] Fetching profile attempt ${attempt} for user:`, userId)
       
       const { data: profileData, error } = await supabase
         .from('profiles')
@@ -52,46 +87,55 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
       
       if (!profileData) {
-        console.warn('[AuthProvider] Profile not found for user:', userId)
+        console.warn('[AuthProvider] Profile not found')
+        
+        // If no profile found and we have user metadata, try to create it
+        if (userMetadata && attempt === 1) {
+          console.log('[AuthProvider] Attempting to create profile...')
+          const newProfile = await createProfileForUser(userId, userMetadata)
+          if (newProfile) {
+            return newProfile
+          }
+          
+          // If creation failed, wait and retry fetch
+          if (attempt < 3) {
+            console.log('[AuthProvider] Retrying profile fetch in 2 seconds...')
+            await new Promise(resolve => setTimeout(resolve, 2000))
+            return fetchProfile(userId, userMetadata, attempt + 1)
+          }
+        }
+        
+        return null
       }
       
+      console.log('[AuthProvider] Profile found:', profileData.username)
       return profileData
     } catch (error) {
-      console.error('[AuthProvider] Error in fetchProfile:', error)
+      console.error('[AuthProvider] Exception in fetchProfile:', error)
       return null
     }
   }, [supabase])
 
   const refreshProfile = useCallback(async () => {
     if (user) {
-      const profileData = await fetchProfile(user.id)
+      const profileData = await fetchProfile(user.id, user.user_metadata)
       setProfile(profileData)
     }
   }, [user, fetchProfile])
 
   useEffect(() => {
     let mounted = true
-    let retryTimeout: NodeJS.Timeout
+    let initTimeout: NodeJS.Timeout
 
     const initAuth = async () => {
       try {
         console.log('[AuthProvider] Initializing auth...')
         
-        // Get initial session with retry logic
+        // Get initial session
         const { data: { session }, error } = await supabase.auth.getSession()
         
         if (error) {
           console.error('[AuthProvider] Error getting session:', error)
-          
-          // Retry once after 1 second
-          if (!initialized) {
-            retryTimeout = setTimeout(() => {
-              if (mounted) {
-                initAuth()
-              }
-            }, 1000)
-            return
-          }
         }
 
         if (mounted) {
@@ -99,33 +143,37 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             console.log('[AuthProvider] User session found:', session.user.email)
             setUser(session.user)
             
-            // Fetch profile with retry
-            let profileData = await fetchProfile(session.user.id)
-            
-            // If profile not found, wait and retry once
-            if (!profileData) {
-              console.log('[AuthProvider] Profile not found, retrying in 2 seconds...')
-              await new Promise(resolve => setTimeout(resolve, 2000))
-              profileData = await fetchProfile(session.user.id)
-            }
-            
+            // Fetch profile with retry and auto-creation
+            const profileData = await fetchProfile(session.user.id, session.user.user_metadata)
             setProfile(profileData)
+            
+            // If still no profile after retries, set loading to false anyway
+            // Don't block the UI forever
+            if (!profileData) {
+              console.error('[AuthProvider] Failed to create/fetch profile after retries')
+            }
           } else {
             console.log('[AuthProvider] No session found')
             setUser(null)
             setProfile(null)
           }
           setLoading(false)
-          setInitialized(true)
         }
       } catch (error) {
         console.error('[AuthProvider] Error in initAuth:', error)
         if (mounted) {
           setLoading(false)
-          setInitialized(true)
         }
       }
     }
+
+    // Set a maximum timeout for initialization
+    initTimeout = setTimeout(() => {
+      if (mounted && loading) {
+        console.warn('[AuthProvider] Auth initialization timeout - forcing loading to false')
+        setLoading(false)
+      }
+    }, 10000) // 10 second max timeout
 
     initAuth()
 
@@ -137,14 +185,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (mounted) {
           if (session?.user) {
             setUser(session.user)
-            const profileData = await fetchProfile(session.user.id)
+            const profileData = await fetchProfile(session.user.id, session.user.user_metadata)
             setProfile(profileData)
           } else {
             setUser(null)
             setProfile(null)
           }
           
-          // Always set loading to false after auth state change
           setLoading(false)
         }
       }
@@ -152,10 +199,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     return () => {
       mounted = false
-      if (retryTimeout) clearTimeout(retryTimeout)
+      clearTimeout(initTimeout)
       subscription.unsubscribe()
     }
-  }, [fetchProfile, initialized, supabase.auth])
+  }, [fetchProfile, supabase.auth])
 
   const signOut = async () => {
     try {
