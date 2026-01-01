@@ -33,7 +33,7 @@ export default function RegisterPage() {
         .from('profiles')
         .select('username')
         .eq('username', username.toLowerCase())
-        .single()
+        .maybeSingle()
 
       if (existingUser) {
         toast.error('Username sudah digunakan')
@@ -41,7 +41,14 @@ export default function RegisterPage() {
         return
       }
 
-      // Sign up user - trigger akan otomatis membuat profil
+      // Get redirect URL
+      const origin = typeof window !== 'undefined' ? window.location.origin : ''
+      const redirectTo = `${origin}/auth/callback`
+
+      console.log('[Register] Starting registration...')
+      console.log('[Register] Redirect URL:', redirectTo)
+
+      // Sign up user
       const { data: authData, error: authError } = await supabase.auth.signUp({
         email,
         password,
@@ -50,18 +57,87 @@ export default function RegisterPage() {
             username: username.toLowerCase(),
             full_name: fullName,
           },
+          emailRedirectTo: redirectTo,
         },
       })
 
-      if (authError) throw authError
+      if (authError) {
+        console.error('[Register] Auth error:', authError)
+        throw authError
+      }
+
+      console.log('[Register] Sign up response:', authData)
 
       if (authData.user) {
-        toast.success('Registrasi berhasil! Silakan login.')
-        router.push('/login')
+        // Check if email confirmation is required
+        if (authData.user.identities && authData.user.identities.length === 0) {
+          // Email already exists
+          toast.error('Email sudah terdaftar. Silakan login.')
+          setLoading(false)
+          return
+        }
+
+        // Check if email confirmation is disabled (auto-confirmed)
+        const isAutoConfirmed = authData.user.email_confirmed_at !== null
+
+        if (isAutoConfirmed) {
+          // Auto-confirmed, create profile and login
+          console.log('[Register] Auto-confirmed, creating profile...')
+          
+          // Wait a bit for trigger to execute
+          await new Promise(resolve => setTimeout(resolve, 2000))
+          
+          // Check if profile exists
+          const { data: profile } = await supabase
+            .from('profiles')
+            .select('*')
+            .eq('id', authData.user.id)
+            .maybeSingle()
+
+          if (!profile) {
+            // Create profile manually
+            const { error: insertError } = await supabase
+              .from('profiles')
+              .insert({
+                id: authData.user.id,
+                username: username.toLowerCase(),
+                full_name: fullName || null,
+              })
+
+            if (insertError) {
+              console.error('[Register] Profile creation error:', insertError)
+            }
+          }
+
+          toast.success('Registrasi berhasil! Mengalihkan...')
+          setTimeout(() => {
+            window.location.href = '/'
+          }, 1000)
+        } else {
+          // Email confirmation required
+          toast.success(
+            'Registrasi berhasil! Cek email Anda untuk verifikasi.',
+            { duration: 5000 }
+          )
+          setTimeout(() => {
+            router.push('/login')
+          }, 2000)
+        }
       }
     } catch (error: any) {
-      console.error('Registration error:', error)
-      toast.error(error.message || 'Registrasi gagal')
+      console.error('[Register] Registration error:', error)
+      
+      let errorMessage = 'Registrasi gagal'
+      
+      if (error.message?.includes('User already registered')) {
+        errorMessage = 'Email sudah terdaftar. Silakan login.'
+      } else if (error.message?.includes('Password should be')) {
+        errorMessage = 'Password minimal 6 karakter'
+      } else if (error.message) {
+        errorMessage = error.message
+      }
+      
+      toast.error(errorMessage)
     } finally {
       setLoading(false)
     }
@@ -69,8 +145,11 @@ export default function RegisterPage() {
 
   const handleGoogleSignup = async () => {
     try {
+      console.log('[Register] Starting Google OAuth...')
       const origin = typeof window !== 'undefined' ? window.location.origin : ''
       const redirectTo = `${origin}/auth/callback`
+      
+      console.log('[Register] Redirect URL:', redirectTo)
       
       const { error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
@@ -83,10 +162,13 @@ export default function RegisterPage() {
         },
       })
 
-      if (error) throw error
+      if (error) {
+        console.error('[Register] Google OAuth error:', error)
+        throw error
+      }
     } catch (error: any) {
-      console.error('Google signup error:', error)
-      toast.error('Daftar dengan Google gagal')
+      console.error('[Register] Google signup error:', error)
+      toast.error('Daftar dengan Google gagal: ' + error.message)
     }
   }
 
@@ -223,5 +305,4 @@ export default function RegisterPage() {
   )
 }
 
-// CRITICAL: Tambahkan ini untuk mencegah static generation
 export const dynamic = 'force-dynamic'
