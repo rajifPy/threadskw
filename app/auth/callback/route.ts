@@ -4,47 +4,56 @@ import { NextResponse } from 'next/server'
 export async function GET(request: Request) {
   const requestUrl = new URL(request.url)
   const code = requestUrl.searchParams.get('code')
+  const error = requestUrl.searchParams.get('error')
+  const error_description = requestUrl.searchParams.get('error_description')
+
+  // Handle OAuth errors
+  if (error) {
+    console.error('OAuth error:', error, error_description)
+    return NextResponse.redirect(
+      new URL(`/login?error=${encodeURIComponent(error_description || error)}`, requestUrl.origin)
+    )
+  }
 
   if (code) {
     const supabase = createClient()
     
     try {
-      const { data: { user }, error } = await supabase.auth.exchangeCodeForSession(code)
+      // Exchange code for session
+      const { data: { user }, error: sessionError } = await supabase.auth.exchangeCodeForSession(code)
 
-      if (error) {
-        console.error('Auth error:', error)
-        return NextResponse.redirect(new URL('/login?error=auth_failed', requestUrl.origin))
+      if (sessionError) {
+        console.error('Session exchange error:', sessionError)
+        return NextResponse.redirect(
+          new URL('/login?error=auth_failed', requestUrl.origin)
+        )
       }
 
       if (user) {
-        // Check if profile exists
-        const { data: profile, error: profileError } = await supabase
+        // Trigger sudah otomatis membuat profil
+        // Tapi kita bisa cek apakah profil sudah ada
+        const { data: profile } = await supabase
           .from('profiles')
           .select('*')
           .eq('id', user.id)
           .single()
 
-        // Create profile if it doesn't exist
-        if (!profile && !profileError) {
-          const username = user.email?.split('@')[0].toLowerCase().replace(/[^a-z0-9_]/g, '') || `user_${user.id.substring(0, 8)}`
-          
-          const { error: insertError } = await supabase.from('profiles').insert([{
-            id: user.id,
-            username,
-            full_name: user.user_metadata?.full_name || user.user_metadata?.name || username,
-            avatar_url: user.user_metadata?.avatar_url || user.user_metadata?.picture || null,
-          }])
-
-          if (insertError) {
-            console.error('Profile insert error:', insertError)
-          }
+        if (!profile) {
+          // Jika trigger gagal, log error tapi tetap redirect ke home
+          console.error('Profile not created by trigger for user:', user.id)
+          // User tetap bisa login, profil bisa dibuat manual nanti
         }
+
+        console.log('Login successful for user:', user.email)
       }
     } catch (err) {
-      console.error('Unexpected error:', err)
-      return NextResponse.redirect(new URL('/login?error=unexpected', requestUrl.origin))
+      console.error('Unexpected error in callback:', err)
+      return NextResponse.redirect(
+        new URL('/login?error=unexpected_error', requestUrl.origin)
+      )
     }
   }
 
+  // Redirect to home page
   return NextResponse.redirect(new URL('/', requestUrl.origin))
 }
