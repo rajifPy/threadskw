@@ -16,14 +16,19 @@ export default function HomePage() {
   const [loading, setLoading] = useState(true)
   const supabase = createClient()
 
+  // Check auth and redirect
   useEffect(() => {
     if (!authLoading && !user) {
+      console.log('No user found, redirecting to login...')
       router.push('/login')
     }
   }, [user, authLoading, router])
 
   const fetchPosts = async () => {
+    if (!user) return
+    
     try {
+      setLoading(true)
       const { data, error } = await supabase
         .from('posts')
         .select(`
@@ -66,6 +71,7 @@ export default function HomePage() {
     }
   }
 
+  // Fetch posts when user is available
   useEffect(() => {
     if (user) {
       fetchPosts()
@@ -88,18 +94,27 @@ export default function HomePage() {
         supabase.removeChannel(postsChannel)
       }
     }
-  }, [user])
+  }, [user?.id]) // Only depend on user.id to avoid infinite loops
 
-  if (authLoading || !user) {
+  // Show loading while checking auth
+  if (authLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary-500"></div>
+      <div className="min-h-screen flex items-center justify-center bg-primary-50">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary-500 mx-auto"></div>
+          <p className="mt-4 text-gray-600">Loading...</p>
+        </div>
       </div>
     )
   }
 
+  // Don't render anything if no user (will redirect)
+  if (!user) {
+    return null
+  }
+
   return (
-    <div className="min-h-screen">
+    <div className="min-h-screen bg-primary-50">
       <Navbar />
       
       <main className="max-w-2xl mx-auto px-4 py-6">
@@ -110,11 +125,11 @@ export default function HomePage() {
             <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-primary-500"></div>
           </div>
         ) : posts.length === 0 ? (
-          <div className="text-center py-12">
+          <div className="bg-white rounded-xl shadow-md p-12 text-center">
             <p className="text-gray-500">Belum ada post. Jadilah yang pertama membagikan opini!</p>
           </div>
         ) : (
-          <div>
+          <div className="space-y-4">
             {posts.map((post) => (
               <ThreadCard
                 key={post.id}
@@ -129,4 +144,5 @@ export default function HomePage() {
     </div>
   )
 }
+
 export const dynamic = 'force-dynamic'
