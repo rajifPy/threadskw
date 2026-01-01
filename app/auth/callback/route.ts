@@ -11,7 +11,8 @@ export async function GET(request: Request) {
     hasCode: !!code, 
     error, 
     error_description,
-    origin: requestUrl.origin 
+    origin: requestUrl.origin,
+    fullUrl: request.url 
   })
 
   // Handle OAuth errors
@@ -34,11 +35,11 @@ export async function GET(request: Request) {
       if (sessionError) {
         console.error('Session exchange error:', sessionError)
         return NextResponse.redirect(
-          new URL(`/login?error=${encodeURIComponent('Authentication failed')}`, requestUrl.origin)
+          new URL(`/login?error=${encodeURIComponent(sessionError.message || 'Authentication failed')}`, requestUrl.origin)
         )
       }
 
-      const user = data.user
+      const user = data?.user
 
       if (user) {
         console.log('User authenticated:', user.email)
@@ -48,7 +49,7 @@ export async function GET(request: Request) {
           .from('profiles')
           .select('*')
           .eq('id', user.id)
-          .single()
+          .maybeSingle() // Use maybeSingle instead of single
 
         if (profileError && profileError.code !== 'PGRST116') {
           console.error('Profile check error:', profileError)
@@ -59,6 +60,7 @@ export async function GET(request: Request) {
           
           // Create profile manually if trigger failed
           const username = user.user_metadata?.username || 
+                          user.user_metadata?.preferred_username ||
                           user.email?.split('@')[0] || 
                           `user_${user.id.substring(0, 8)}`
           
@@ -68,7 +70,7 @@ export async function GET(request: Request) {
               id: user.id,
               username: username.toLowerCase().replace(/[^a-z0-9_]/g, '_'),
               full_name: user.user_metadata?.full_name || user.user_metadata?.name || null,
-              avatar_url: user.user_metadata?.avatar_url || null,
+              avatar_url: user.user_metadata?.avatar_url || user.user_metadata?.picture || null,
             })
 
           if (insertError) {
@@ -83,7 +85,14 @@ export async function GET(request: Request) {
 
         // Success - redirect to home
         console.log('Redirecting to home...')
-        return NextResponse.redirect(new URL('/', requestUrl.origin))
+        
+        // Use revalidatePath untuk clear cache
+        const response = NextResponse.redirect(new URL('/', requestUrl.origin))
+        
+        // Add cache headers
+        response.headers.set('Cache-Control', 'no-store, max-age=0')
+        
+        return response
       }
     } catch (err) {
       console.error('Unexpected error in callback:', err)
