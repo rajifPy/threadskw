@@ -1,19 +1,17 @@
-import { createClient } from '@/lib/supabase/server'
-import { NextResponse } from 'next/server'
+import { createServerClient, type CookieOptions } from '@supabase/ssr'
+import { cookies } from 'next/headers'
+import { NextResponse, type NextRequest } from 'next/server'
 
-export async function GET(request: Request) {
+export async function GET(request: NextRequest) {
   const requestUrl = new URL(request.url)
   const code = requestUrl.searchParams.get('code')
   const error = requestUrl.searchParams.get('error')
   const error_description = requestUrl.searchParams.get('error_description')
 
-  console.log('Callback received:', { 
-    hasCode: !!code, 
-    error, 
-    error_description,
-    origin: requestUrl.origin,
-    fullUrl: request.url 
-  })
+  console.log('=== AUTH CALLBACK START ===')
+  console.log('Has code:', !!code)
+  console.log('Error:', error, error_description)
+  console.log('Origin:', requestUrl.origin)
 
   // Handle OAuth errors
   if (error) {
@@ -24,7 +22,33 @@ export async function GET(request: Request) {
   }
 
   if (code) {
-    const supabase = createClient()
+    const cookieStore = cookies()
+    
+    const supabase = createServerClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      {
+        cookies: {
+          get(name: string) {
+            return cookieStore.get(name)?.value
+          },
+          set(name: string, value: string, options: CookieOptions) {
+            try {
+              cookieStore.set({ name, value, ...options })
+            } catch (error) {
+              console.error('Error setting cookie:', error)
+            }
+          },
+          remove(name: string, options: CookieOptions) {
+            try {
+              cookieStore.set({ name, value: '', ...options })
+            } catch (error) {
+              console.error('Error removing cookie:', error)
+            }
+          },
+        },
+      }
+    )
     
     try {
       console.log('Exchanging code for session...')
@@ -40,25 +64,27 @@ export async function GET(request: Request) {
       }
 
       const user = data?.user
+      const session = data?.session
 
-      if (user) {
-        console.log('User authenticated:', user.email)
+      if (user && session) {
+        console.log('✅ User authenticated:', user.email)
+        console.log('✅ Session created:', session.access_token.substring(0, 20) + '...')
         
         // Check if profile exists
         const { data: profile, error: profileError } = await supabase
           .from('profiles')
           .select('*')
           .eq('id', user.id)
-          .maybeSingle() // Use maybeSingle instead of single
+          .maybeSingle()
 
         if (profileError && profileError.code !== 'PGRST116') {
           console.error('Profile check error:', profileError)
         }
 
         if (!profile) {
-          console.log('Profile not found, creating manually...')
+          console.log('Creating profile...')
           
-          // Create profile manually if trigger failed
+          // Create profile manually
           const username = user.user_metadata?.username || 
                           user.user_metadata?.preferred_username ||
                           user.email?.split('@')[0] || 
@@ -75,24 +101,28 @@ export async function GET(request: Request) {
 
           if (insertError) {
             console.error('Profile creation error:', insertError)
-            // Don't fail the login, profile can be created later
           } else {
-            console.log('Profile created successfully')
+            console.log('✅ Profile created successfully')
           }
         } else {
-          console.log('Profile exists:', profile.username)
+          console.log('✅ Profile exists:', profile.username)
         }
 
-        // Success - redirect to home
-        console.log('Redirecting to home...')
-        
-        // Use revalidatePath untuk clear cache
+        // Create response with proper headers
         const response = NextResponse.redirect(new URL('/', requestUrl.origin))
         
-        // Add cache headers
-        response.headers.set('Cache-Control', 'no-store, max-age=0')
+        // Set cache headers
+        response.headers.set('Cache-Control', 'no-store, no-cache, must-revalidate')
+        response.headers.set('Pragma', 'no-cache')
+        response.headers.set('Expires', '0')
         
+        console.log('=== AUTH CALLBACK SUCCESS ===')
         return response
+      } else {
+        console.error('No user or session after exchange')
+        return NextResponse.redirect(
+          new URL('/login?error=No session created', requestUrl.origin)
+        )
       }
     } catch (err) {
       console.error('Unexpected error in callback:', err)
@@ -102,7 +132,7 @@ export async function GET(request: Request) {
     }
   }
 
-  // No code provided - redirect to login
+  // No code provided
   console.log('No code provided, redirecting to login')
   return NextResponse.redirect(new URL('/login', requestUrl.origin))
 }
