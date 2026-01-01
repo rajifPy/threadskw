@@ -21,12 +21,12 @@ export async function GET(request: Request) {
       if (!profile) {
         const username = user.email?.split('@')[0].toLowerCase().replace(/[^a-z0-9_]/g, '') || `user_${user.id.substring(0, 8)}`
         
-        await supabase.from('profiles').insert({
+        await supabase.from('profiles').insert([{
           id: user.id,
           username,
           full_name: user.user_metadata?.full_name || user.user_metadata?.name || username,
-          avatar_url: user.user_metadata?.avatar_url || user.user_metadata?.picture,
-        })
+          avatar_url: user.user_metadata?.avatar_url || user.user_metadata?.picture || null,
+        }])
       }
     }
   }
