@@ -4,7 +4,6 @@ import { createContext, useContext, useEffect, useState } from 'react'
 import { User } from '@supabase/supabase-js'
 import { createClient } from '@/lib/supabase/client'
 import { Profile } from '@/lib/supabase/types'
-import { useRouter } from 'next/navigation'
 
 interface AuthContextType {
   user: User | null
@@ -35,7 +34,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [profile, setProfile] = useState<Profile | null>(null)
   const [loading, setLoading] = useState(true)
   const supabase = createClient()
-  const router = useRouter()
 
   const fetchProfile = async (userId: string) => {
     try {
@@ -43,7 +41,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         .from('profiles')
         .select('*')
         .eq('id', userId)
-        .single()
+        .maybeSingle()
       
       if (error) {
         console.error('Error fetching profile:', error)
@@ -69,26 +67,30 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     const initAuth = async () => {
       try {
+        console.log('[AuthProvider] Initializing auth...')
+        
         // Get initial session
         const { data: { session }, error } = await supabase.auth.getSession()
         
         if (error) {
-          console.error('Error getting session:', error)
+          console.error('[AuthProvider] Error getting session:', error)
         }
 
         if (mounted) {
           if (session?.user) {
+            console.log('[AuthProvider] User found:', session.user.email)
             setUser(session.user)
             const profileData = await fetchProfile(session.user.id)
             setProfile(profileData)
           } else {
+            console.log('[AuthProvider] No session found')
             setUser(null)
             setProfile(null)
           }
           setLoading(false)
         }
       } catch (error) {
-        console.error('Error in initAuth:', error)
+        console.error('[AuthProvider] Error in initAuth:', error)
         if (mounted) {
           setLoading(false)
         }
@@ -100,29 +102,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // Listen for auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
-        console.log('Auth state changed:', event, session?.user?.email)
+        console.log('[AuthProvider] Auth state changed:', event)
         
         if (mounted) {
           if (session?.user) {
+            console.log('[AuthProvider] User session active:', session.user.email)
             setUser(session.user)
             const profileData = await fetchProfile(session.user.id)
             setProfile(profileData)
-            
-            // If user just signed in, redirect to home
-            if (event === 'SIGNED_IN') {
-              console.log('User signed in, redirecting to home...')
-              router.push('/')
-              router.refresh()
-            }
           } else {
+            console.log('[AuthProvider] No user session')
             setUser(null)
             setProfile(null)
-            
-            // If user signed out, redirect to login
-            if (event === 'SIGNED_OUT') {
-              console.log('User signed out, redirecting to login...')
-              router.push('/login')
-            }
           }
           setLoading(false)
         }
@@ -133,13 +124,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       mounted = false
       subscription.unsubscribe()
     }
-  }, [supabase, router])
+  }, [])
 
   const signOut = async () => {
     await supabase.auth.signOut()
     setUser(null)
     setProfile(null)
-    router.push('/login')
   }
 
   return (
