@@ -35,9 +35,14 @@ function LoginForm() {
 
       if (error) throw error
 
+      console.log('Login successful:', data.user?.email)
       toast.success('Login berhasil!')
-      router.push('/')
-      router.refresh()
+      
+      // Wait a bit for auth state to update
+      setTimeout(() => {
+        router.push('/')
+        router.refresh()
+      }, 500)
     } catch (error: any) {
       console.error('Login error:', error)
       
@@ -50,7 +55,6 @@ function LoginForm() {
       }
       
       toast.error(errorMessage)
-    } finally {
       setLoading(false)
     }
   }
