@@ -241,3 +241,4 @@ export default function PostDetailPage() {
     </div>
   )
 }
+export const dynamic = 'force-dynamic'
