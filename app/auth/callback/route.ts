@@ -8,10 +8,13 @@ export async function GET(request: NextRequest) {
   const error = requestUrl.searchParams.get('error')
   const error_description = requestUrl.searchParams.get('error_description')
 
-  console.log('=== AUTH CALLBACK START ===')
-  console.log('Has code:', !!code)
-  console.log('Error:', error, error_description)
-  console.log('Origin:', requestUrl.origin)
+  console.log('Callback received:', { 
+    hasCode: !!code, 
+    error, 
+    error_description,
+    origin: requestUrl.origin,
+    fullUrl: request.url 
+  })
 
   // Handle OAuth errors
   if (error) {
@@ -22,33 +25,7 @@ export async function GET(request: NextRequest) {
   }
 
   if (code) {
-    const cookieStore = cookies()
-    
-    const supabase = createServerClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-      {
-        cookies: {
-          get(name: string) {
-            return cookieStore.get(name)?.value
-          },
-          set(name: string, value: string, options: CookieOptions) {
-            try {
-              cookieStore.set({ name, value, ...options })
-            } catch (error) {
-              console.error('Error setting cookie:', error)
-            }
-          },
-          remove(name: string, options: CookieOptions) {
-            try {
-              cookieStore.set({ name, value: '', ...options })
-            } catch (error) {
-              console.error('Error removing cookie:', error)
-            }
-          },
-        },
-      }
-    )
+    const supabase = createClient()
     
     try {
       console.log('Exchanging code for session...')
@@ -64,27 +41,25 @@ export async function GET(request: NextRequest) {
       }
 
       const user = data?.user
-      const session = data?.session
 
-      if (user && session) {
-        console.log('✅ User authenticated:', user.email)
-        console.log('✅ Session created:', session.access_token.substring(0, 20) + '...')
+      if (user) {
+        console.log('User authenticated:', user.email)
         
         // Check if profile exists
         const { data: profile, error: profileError } = await supabase
           .from('profiles')
           .select('*')
           .eq('id', user.id)
-          .maybeSingle()
+          .maybeSingle() // Use maybeSingle instead of single
 
         if (profileError && profileError.code !== 'PGRST116') {
           console.error('Profile check error:', profileError)
         }
 
         if (!profile) {
-          console.log('Creating profile...')
+          console.log('Profile not found, creating manually...')
           
-          // Create profile manually
+          // Create profile manually if trigger failed
           const username = user.user_metadata?.username || 
                           user.user_metadata?.preferred_username ||
                           user.email?.split('@')[0] || 
@@ -101,28 +76,24 @@ export async function GET(request: NextRequest) {
 
           if (insertError) {
             console.error('Profile creation error:', insertError)
+            // Don't fail the login, profile can be created later
           } else {
-            console.log('✅ Profile created successfully')
+            console.log('Profile created successfully')
           }
         } else {
-          console.log('✅ Profile exists:', profile.username)
+          console.log('Profile exists:', profile.username)
         }
 
-        // Create response with proper headers
+        // Success - redirect to home
+        console.log('Redirecting to home...')
+        
+        // Use revalidatePath untuk clear cache
         const response = NextResponse.redirect(new URL('/', requestUrl.origin))
         
-        // Set cache headers
-        response.headers.set('Cache-Control', 'no-store, no-cache, must-revalidate')
-        response.headers.set('Pragma', 'no-cache')
-        response.headers.set('Expires', '0')
+        // Add cache headers
+        response.headers.set('Cache-Control', 'no-store, max-age=0')
         
-        console.log('=== AUTH CALLBACK SUCCESS ===')
         return response
-      } else {
-        console.error('No user or session after exchange')
-        return NextResponse.redirect(
-          new URL('/login?error=No session created', requestUrl.origin)
-        )
       }
     } catch (err) {
       console.error('Unexpected error in callback:', err)
@@ -132,7 +103,7 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  // No code provided
+  // No code provided - redirect to login
   console.log('No code provided, redirecting to login')
   return NextResponse.redirect(new URL('/login', requestUrl.origin))
 }
