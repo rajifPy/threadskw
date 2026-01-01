@@ -25,7 +25,34 @@ export async function GET(request: NextRequest) {
   }
 
   if (code) {
-    const supabase = createClient()
+    const cookieStore = cookies()
+    
+    // Create Supabase client with proper cookie handling
+    const supabase = createServerClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      {
+        cookies: {
+          get(name: string) {
+            return cookieStore.get(name)?.value
+          },
+          set(name: string, value: string, options: CookieOptions) {
+            try {
+              cookieStore.set({ name, value, ...options })
+            } catch (error) {
+              console.error('Error setting cookie:', error)
+            }
+          },
+          remove(name: string, options: CookieOptions) {
+            try {
+              cookieStore.set({ name, value: '', ...options })
+            } catch (error) {
+              console.error('Error removing cookie:', error)
+            }
+          },
+        },
+      }
+    )
     
     try {
       console.log('Exchanging code for session...')
@@ -50,7 +77,7 @@ export async function GET(request: NextRequest) {
           .from('profiles')
           .select('*')
           .eq('id', user.id)
-          .maybeSingle() // Use maybeSingle instead of single
+          .maybeSingle()
 
         if (profileError && profileError.code !== 'PGRST116') {
           console.error('Profile check error:', profileError)
@@ -76,7 +103,6 @@ export async function GET(request: NextRequest) {
 
           if (insertError) {
             console.error('Profile creation error:', insertError)
-            // Don't fail the login, profile can be created later
           } else {
             console.log('Profile created successfully')
           }
@@ -84,14 +110,15 @@ export async function GET(request: NextRequest) {
           console.log('Profile exists:', profile.username)
         }
 
-        // Success - redirect to home
+        // Success - redirect to home with proper response
         console.log('Redirecting to home...')
         
-        // Use revalidatePath untuk clear cache
         const response = NextResponse.redirect(new URL('/', requestUrl.origin))
         
-        // Add cache headers
-        response.headers.set('Cache-Control', 'no-store, max-age=0')
+        // Set cache control headers
+        response.headers.set('Cache-Control', 'no-store, no-cache, must-revalidate')
+        response.headers.set('Pragma', 'no-cache')
+        response.headers.set('Expires', '0')
         
         return response
       }
@@ -107,3 +134,5 @@ export async function GET(request: NextRequest) {
   console.log('No code provided, redirecting to login')
   return NextResponse.redirect(new URL('/login', requestUrl.origin))
 }
+
+export const dynamic = 'force-dynamic'
