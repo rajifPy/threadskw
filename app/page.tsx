@@ -14,15 +14,33 @@ export default function HomePage() {
   const router = useRouter()
   const [posts, setPosts] = useState<PostWithProfile[]>([])
   const [loading, setLoading] = useState(true)
+  const [loadingTimeout, setLoadingTimeout] = useState(false)
   const supabase = createClient()
 
-  // Check auth and redirect
+  // Add timeout for loading state
   useEffect(() => {
-    if (!authLoading && !user) {
-      console.log('No user found, redirecting to login...')
-      router.push('/login')
+    const timeout = setTimeout(() => {
+      if (authLoading) {
+        console.warn('[HomePage] Loading timeout - forcing redirect')
+        setLoadingTimeout(true)
+        router.replace('/login')
+      }
+    }, 5000) // 5 second timeout
+
+    return () => clearTimeout(timeout)
+  }, [authLoading])
+
+  // Check auth and redirect - only once
+  useEffect(() => {
+    if (!authLoading) {
+      if (!user) {
+        console.log('[HomePage] No user found, redirecting to login...')
+        router.replace('/login')
+      } else {
+        console.log('[HomePage] User authenticated:', user.email)
+      }
     }
-  }, [user, authLoading, router])
+  }, [authLoading]) // Only trigger when loading changes
 
   const fetchPosts = async () => {
     if (!user) return
