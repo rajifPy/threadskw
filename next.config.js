@@ -12,10 +12,6 @@ const nextConfig = {
       },
     ],
   },
-  // Untuk memastikan Tailwind CSS tercompile dengan benar
-  experimental: {
-    optimizeCss: true,
-  },
   typescript: {
     ignoreBuildErrors: true,
   },
