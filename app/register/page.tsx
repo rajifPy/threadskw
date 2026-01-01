@@ -69,10 +69,17 @@ export default function RegisterPage() {
 
   const handleGoogleSignup = async () => {
     try {
+      const origin = typeof window !== 'undefined' ? window.location.origin : ''
+      const redirectTo = `${origin}/auth/callback`
+      
       const { error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
-          redirectTo: `${window.location.origin}/auth/callback`,
+          redirectTo,
+          queryParams: {
+            access_type: 'offline',
+            prompt: 'consent',
+          },
         },
       })
 
@@ -215,3 +222,6 @@ export default function RegisterPage() {
     </div>
   )
 }
+
+// CRITICAL: Tambahkan ini untuk mencegah static generation
+export const dynamic = 'force-dynamic'
