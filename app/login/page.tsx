@@ -1,7 +1,7 @@
 'use client'
 
-import { useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { useState, useEffect } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
 import toast from 'react-hot-toast'
@@ -11,7 +11,16 @@ export default function LoginPage() {
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
   const router = useRouter()
+  const searchParams = useSearchParams()
   const supabase = createClient()
+
+  // Show error message if redirected with error
+  useEffect(() => {
+    const error = searchParams.get('error')
+    if (error) {
+      toast.error(decodeURIComponent(error))
+    }
+  }, [searchParams])
 
   const handleEmailLogin = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -27,9 +36,19 @@ export default function LoginPage() {
 
       toast.success('Login berhasil!')
       router.push('/')
+      router.refresh()
     } catch (error: any) {
       console.error('Login error:', error)
-      toast.error(error.message || 'Login gagal')
+      
+      // Friendly error messages
+      let errorMessage = 'Login gagal'
+      if (error.message.includes('Invalid login credentials')) {
+        errorMessage = 'Email atau password salah'
+      } else if (error.message.includes('Email not confirmed')) {
+        errorMessage = 'Email belum diverifikasi. Cek inbox Anda.'
+      }
+      
+      toast.error(errorMessage)
     } finally {
       setLoading(false)
     }
