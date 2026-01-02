@@ -32,13 +32,18 @@ function LoginForm() {
     const error = searchParams.get('error')
     const message = searchParams.get('message')
     
-    if (error === 'pkce_error') {
+    if (error === 'pkce_cleared' || error === 'cache_cleared') {
+      toast.success(
+        message || 'Cache berhasil dibersihkan! Silakan login kembali.',
+        { duration: 5000 }
+      )
+    } else if (error === 'pkce_error') {
       toast.error(
         message || 'PKCE error. Browser cache telah dibersihkan. Silakan coba login lagi.',
         { duration: 6000 }
       )
     } else if (error) {
-      toast.error(decodeURIComponent(error))
+      toast.error(decodeURIComponent(error), { duration: 5000 })
     }
   }, [searchParams])
 
