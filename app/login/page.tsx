@@ -102,19 +102,22 @@ function LoginForm() {
       // Clear any existing session first to prevent PKCE conflicts
       await supabase.auth.signOut({ scope: 'local' })
       
+      // CRITICAL: Build absolute URL for callback
       const origin = window.location.origin
       const redirectTo = `${origin}/auth/callback`
       
       console.log('📍 [Login] Origin:', origin)
       console.log('📍 [Login] Redirect URL:', redirectTo)
       
-      const { error } = await supabase.auth.signInWithOAuth({
+      const { data, error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
           redirectTo,
+          // IMPORTANT: skipBrowserRedirect must be false to work with cookies
+          skipBrowserRedirect: false,
           queryParams: {
             access_type: 'offline',
-            prompt: 'select_account', // Force account selection to avoid cache issues
+            prompt: 'select_account', // Force account selection
           },
         },
       })
@@ -123,6 +126,8 @@ function LoginForm() {
         console.error('❌ [Login] Google OAuth error:', error)
         throw error
       }
+      
+      console.log('✅ [Login] OAuth initiated:', data)
     } catch (error: any) {
       console.error('❌ [Login] Google login failed:', error)
       toast.error('Login dengan Google gagal: ' + error.message)
