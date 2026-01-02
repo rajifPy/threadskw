@@ -15,35 +15,26 @@ export default function HomePage() {
   const router = useRouter()
   const [posts, setPosts] = useState<PostWithProfile[]>([])
   const [loading, setLoading] = useState(true)
-  const [redirecting, setRedirecting] = useState(false)
   const supabase = createClient()
 
-  // Check auth and redirect with timeout protection
+  // Check auth and redirect - NO TIMEOUT, just wait for authLoading to finish
   useEffect(() => {
-    if (authLoading) return // Still loading, wait
-
-    const redirectTimeout = setTimeout(() => {
-      if (!user && !authLoading) {
-        console.log('⏱️ [HomePage] Auth timeout, redirecting to login...')
-        setRedirecting(true)
-        router.replace('/login')
-      }
-    }, 2000) // Give 2 seconds grace period
-
-    if (!user) {
-      console.log('ℹ️ [HomePage] No user found, will redirect to login...')
-      // Don't redirect immediately, wait for timeout
-    } else if (user && !profile) {
-      console.warn('⚠️ [HomePage] User exists but profile is null, redirecting to debug...')
-      clearTimeout(redirectTimeout)
-      setRedirecting(true)
-      router.replace('/debug')
-    } else if (user && profile) {
-      console.log('✅ [HomePage] User authenticated:', user.email)
-      clearTimeout(redirectTimeout)
+    // Wait until auth is fully loaded
+    if (authLoading) {
+      console.log('⏳ [HomePage] Waiting for auth to load...')
+      return
     }
 
-    return () => clearTimeout(redirectTimeout)
+    // Auth loading complete, now check state
+    if (!user) {
+      console.log('ℹ️ [HomePage] No user found, redirecting to login...')
+      router.replace('/login')
+    } else if (user && !profile) {
+      console.warn('⚠️ [HomePage] User exists but profile is null, redirecting to debug...')
+      router.replace('/debug')
+    } else if (user && profile) {
+      console.log('✅ [HomePage] User authenticated:', user.email, profile.username)
+    }
   }, [authLoading, user, profile, router])
 
   const fetchPosts = async () => {
@@ -65,7 +56,7 @@ export default function HomePage() {
           )
         `)
         .order('created_at', { ascending: false })
-        .limit(50) // Limit to improve performance
+        .limit(50)
 
       if (error) throw error
 
@@ -96,7 +87,8 @@ export default function HomePage() {
   }
 
   useEffect(() => {
-    if (user && profile && !redirecting) {
+    if (user && profile) {
+      console.log('📊 [HomePage] Fetching posts...')
       fetchPosts()
 
       const postsChannel = supabase
@@ -119,43 +111,24 @@ export default function HomePage() {
         supabase.removeChannel(postsChannel)
       }
     }
-  }, [user, profile, redirecting])
+  }, [user, profile])
 
   // Show loading while checking auth
-  if (authLoading || redirecting) {
+  if (authLoading) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center bg-primary-50">
         <div className="text-center">
           <div className="animate-spin rounded-full h-16 w-16 border-t-2 border-b-2 border-primary-500 mx-auto mb-4"></div>
-          <p className="text-gray-600 font-medium">
-            {redirecting ? 'Redirecting...' : 'Loading...'}
-          </p>
+          <p className="text-gray-600 font-medium">Loading your account...</p>
+          <p className="text-gray-400 text-sm mt-2">Please wait...</p>
         </div>
       </div>
     )
   }
 
-  // Don't render if no user or profile (will redirect)
+  // Don't render content if no user or profile (will redirect)
   if (!user || !profile) {
-    return (
-      <div className="min-h-screen flex flex-col items-center justify-center bg-primary-50">
-        <div className="text-center max-w-md mx-auto px-4">
-          <div className="w-16 h-16 bg-yellow-100 rounded-full flex items-center justify-center mx-auto mb-4">
-            <svg className="w-8 h-8 text-yellow-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-            </svg>
-          </div>
-          <h2 className="text-xl font-bold text-gray-900 mb-2">Authentication Required</h2>
-          <p className="text-gray-600 mb-4">Please wait while we redirect you...</p>
-          <button
-            onClick={() => router.push('/login')}
-            className="px-6 py-2 bg-primary-500 text-white rounded-lg hover:bg-primary-600 transition-colors"
-          >
-            Go to Login
-          </button>
-        </div>
-      </div>
-    )
+    return null
   }
 
   return (
