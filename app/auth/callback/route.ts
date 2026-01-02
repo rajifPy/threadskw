@@ -13,11 +13,69 @@ export async function GET(request: NextRequest) {
     error, 
     error_description,
     origin: requestUrl.origin,
+    fullUrl: request.url,
   })
 
   // Handle OAuth errors
   if (error) {
     console.error('❌ [Callback] OAuth error:', error, error_description)
+    
+    // Handle PKCE specific errors
+    if (error_description?.toLowerCase().includes('pkce') || 
+        error_description?.toLowerCase().includes('code_verifier') ||
+        error_description?.toLowerCase().includes('cache')) {
+      
+      // Return HTML that clears storage and redirects
+      return new NextResponse(
+        `
+        <!DOCTYPE html>
+        <html>
+          <head>
+            <title>Clearing Cache...</title>
+          </head>
+          <body>
+            <div style="display: flex; align-items: center; justify-content: center; min-height: 100vh; font-family: system-ui;">
+              <div style="text-align: center;">
+                <h2>🔄 Membersihkan Cache...</h2>
+                <p>Mohon tunggu sebentar...</p>
+              </div>
+            </div>
+            <script>
+              console.log('Clearing storage...');
+              
+              // Clear localStorage
+              try { localStorage.clear(); } catch(e) {}
+              
+              // Clear sessionStorage
+              try { sessionStorage.clear(); } catch(e) {}
+              
+              // Clear cookies
+              try {
+                document.cookie.split(";").forEach(function(c) { 
+                  document.cookie = c.replace(/^ +/, "").replace(/=.*/, "=;expires=" + new Date().toUTCString() + ";path=/"); 
+                });
+              } catch(e) {}
+              
+              console.log('Storage cleared, redirecting...');
+              
+              // Redirect after clearing
+              setTimeout(function() {
+                window.location.href = '/login?error=pkce_cleared&message=Cache has been cleared. Please try logging in again.';
+              }, 1500);
+            </script>
+          </body>
+        </html>
+        `,
+        {
+          status: 200,
+          headers: {
+            'Content-Type': 'text/html',
+            'Cache-Control': 'no-store, no-cache, must-revalidate',
+          },
+        }
+      )
+    }
+    
     return NextResponse.redirect(
       new URL(`/login?error=${encodeURIComponent(error_description || error)}`, requestUrl.origin)
     )
@@ -32,7 +90,6 @@ export async function GET(request: NextRequest) {
 
   const cookieStore = cookies()
   
-  // CRITICAL: Create server client with proper cookie handling
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
@@ -47,7 +104,6 @@ export async function GET(request: NextRequest) {
               name, 
               value, 
               ...options,
-              // IMPORTANT: Set proper cookie options for production
               path: '/',
               secure: process.env.NODE_ENV === 'production',
               httpOnly: true,
@@ -77,16 +133,54 @@ export async function GET(request: NextRequest) {
   try {
     console.log('🔄 [Callback] Exchanging code for session...')
     
-    // CRITICAL: Exchange code for session
     const { data, error: sessionError } = await supabase.auth.exchangeCodeForSession(code)
 
     if (sessionError) {
       console.error('❌ [Callback] Session exchange error:', sessionError)
       
-      // Handle PKCE specific errors
-      if (sessionError.message?.includes('PKCE') || sessionError.message?.includes('code_verifier')) {
-        return NextResponse.redirect(
-          new URL('/login?error=pkce_error&message=Please clear your browser cache and try again', requestUrl.origin)
+      // Handle PKCE specific errors with storage clearing
+      if (sessionError.message?.toLowerCase().includes('pkce') || 
+          sessionError.message?.toLowerCase().includes('code_verifier')) {
+        
+        return new NextResponse(
+          `
+          <!DOCTYPE html>
+          <html>
+            <head>
+              <title>Clearing Cache...</title>
+            </head>
+            <body>
+              <div style="display: flex; align-items: center; justify-content: center; min-height: 100vh; font-family: system-ui;">
+                <div style="text-align: center;">
+                  <h2>🔄 Membersihkan Cache...</h2>
+                  <p>Mohon tunggu sebentar...</p>
+                </div>
+              </div>
+              <script>
+                console.log('PKCE error detected, clearing storage...');
+                
+                try { localStorage.clear(); } catch(e) {}
+                try { sessionStorage.clear(); } catch(e) {}
+                try {
+                  document.cookie.split(";").forEach(function(c) { 
+                    document.cookie = c.replace(/^ +/, "").replace(/=.*/, "=;expires=" + new Date().toUTCString() + ";path=/"); 
+                  });
+                } catch(e) {}
+                
+                setTimeout(function() {
+                  window.location.href = '/login?error=pkce_cleared&message=PKCE error fixed. Cache cleared. Please login again.';
+                }, 1500);
+              </script>
+            </body>
+          </html>
+          `,
+          {
+            status: 200,
+            headers: {
+              'Content-Type': 'text/html',
+              'Cache-Control': 'no-store, no-cache, must-revalidate',
+            },
+          }
         )
       }
       
@@ -106,18 +200,17 @@ export async function GET(request: NextRequest) {
 
     console.log('✅ [Callback] User authenticated:', user.email)
     
-    // Wait for profile creation with retry
+    // Wait for profile with shorter retries
     let profile = null
     let attempts = 0
-    const maxAttempts = 8
+    const maxAttempts = 5
     
     while (!profile && attempts < maxAttempts) {
       attempts++
       
-      // Wait before checking (exponential backoff)
       if (attempts > 1) {
-        const delay = Math.min(500 * Math.pow(1.5, attempts - 1), 6000)
-        console.log(`⏳ [Callback] Waiting ${delay}ms before retry...`)
+        const delay = Math.min(400 * attempts, 2000)
+        console.log(`⏳ [Callback] Waiting ${delay}ms before retry ${attempts}/${maxAttempts}...`)
         await new Promise(resolve => setTimeout(resolve, delay))
       }
       
@@ -140,9 +233,9 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // If profile still doesn't exist, create it manually
+    // Create profile if not found
     if (!profile) {
-      console.log('📝 [Callback] Profile not found after retries, creating manually...')
+      console.log('📝 [Callback] Creating profile...')
       
       const username = (
         user.user_metadata?.username || 
@@ -165,17 +258,20 @@ export async function GET(request: NextRequest) {
 
       if (insertError) {
         console.error('❌ [Callback] Profile creation error:', insertError)
-        return NextResponse.redirect(new URL('/debug', requestUrl.origin))
+        
+        // If profile creation fails, redirect to debug page
+        return NextResponse.redirect(
+          new URL('/debug?error=profile_creation_failed', requestUrl.origin)
+        )
       }
       
-      console.log('✅ [Callback] Profile created successfully:', newProfile)
+      console.log('✅ [Callback] Profile created:', newProfile)
     }
 
-    console.log('🎉 [Callback] Redirecting to home...')
+    console.log('🎉 [Callback] Success! Redirecting to home...')
     
     const response = NextResponse.redirect(new URL('/', requestUrl.origin))
     
-    // CRITICAL: Set cache headers to prevent stale data
     response.headers.set('Cache-Control', 'no-store, no-cache, must-revalidate, private')
     response.headers.set('Pragma', 'no-cache')
     response.headers.set('Expires', '0')
@@ -185,15 +281,53 @@ export async function GET(request: NextRequest) {
   } catch (err: any) {
     console.error('❌ [Callback] Unexpected error:', err)
     
-    // Handle PKCE specific errors
-    if (err.message?.includes('PKCE') || err.message?.includes('code_verifier')) {
-      return NextResponse.redirect(
-        new URL('/login?error=pkce_error&message=Please clear browser cache and try again', requestUrl.origin)
+    // Handle PKCE errors
+    if (err.message?.toLowerCase().includes('pkce') || 
+        err.message?.toLowerCase().includes('code_verifier')) {
+      
+      return new NextResponse(
+        `
+        <!DOCTYPE html>
+        <html>
+          <head>
+            <title>Clearing Cache...</title>
+          </head>
+          <body>
+            <div style="display: flex; align-items: center; justify-content: center; min-height: 100vh; font-family: system-ui;">
+              <div style="text-align: center;">
+                <h2>🔄 Membersihkan Cache...</h2>
+                <p>Mohon tunggu sebentar...</p>
+              </div>
+            </div>
+            <script>
+              console.log('Clearing all storage...');
+              try { localStorage.clear(); } catch(e) {}
+              try { sessionStorage.clear(); } catch(e) {}
+              try {
+                document.cookie.split(";").forEach(function(c) { 
+                  document.cookie = c.replace(/^ +/, "").replace(/=.*/, "=;expires=" + new Date().toUTCString() + ";path=/"); 
+                });
+              } catch(e) {}
+              
+              setTimeout(function() {
+                window.location.href = '/login?error=cache_cleared&message=Cache cleared successfully. Please try again.';
+              }, 1500);
+            </script>
+          </body>
+        </html>
+        `,
+        {
+          status: 200,
+          headers: {
+            'Content-Type': 'text/html',
+            'Cache-Control': 'no-store, no-cache, must-revalidate',
+          },
+        }
       )
     }
     
     return NextResponse.redirect(
-      new URL(`/debug?error=${encodeURIComponent(err.message || 'Unexpected error')}`, requestUrl.origin)
+      new URL(`/login?error=${encodeURIComponent(err.message || 'Unexpected error')}`, requestUrl.origin)
     )
   }
 }
