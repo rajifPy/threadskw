@@ -39,14 +39,14 @@ function LoginForm() {
 
       toast.success('Login berhasil!')
       
-      // Wait for auth state to settle
+      // Wait for cookies to be set
       await new Promise(resolve => setTimeout(resolve, 500))
       
       // Force navigation
       window.location.href = '/'
       
     } catch (error: any) {
-      console.error('Login error:', error)
+      console.error('❌ [Login] Error:', error)
       
       let errorMessage = 'Login gagal'
       if (error.message.includes('Invalid login credentials')) {
@@ -64,26 +64,25 @@ function LoginForm() {
     setGoogleLoading(true)
     
     try {
-      console.log('[Google Login] Starting...')
+      console.log('🔐 [Google Login] Starting...')
       
-      // Clear any existing auth state first
+      // Clear existing session
       try {
         await supabase.auth.signOut({ scope: 'local' })
-        console.log('[Google Login] Cleared existing session')
+        console.log('✅ [Google Login] Cleared existing session')
       } catch (e) {
-        console.log('[Google Login] No existing session to clear')
+        console.log('ℹ️ [Google Login] No existing session')
       }
       
-      // Small delay to ensure cleanup
-      await new Promise(resolve => setTimeout(resolve, 500))
+      await new Promise(resolve => setTimeout(resolve, 300))
       
       const origin = window.location.origin
       const redirectTo = `${origin}/auth/callback`
       
-      console.log('[Google Login] Origin:', origin)
-      console.log('[Google Login] Redirect URL:', redirectTo)
+      console.log('🌐 [Google Login] Origin:', origin)
+      console.log('↩️ [Google Login] Redirect URL:', redirectTo)
       
-      const { data, error } = await supabase.auth.signInWithOAuth({
+      const { error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
           redirectTo,
@@ -96,35 +95,40 @@ function LoginForm() {
       })
 
       if (error) {
-        console.error('[Google Login] Error:', error)
+        console.error('❌ [Google Login] Error:', error)
         throw error
       }
       
-      console.log('[Google Login] Initiated successfully')
-      
-      // OAuth will redirect, so we keep loading state
-      // No need to setGoogleLoading(false) as user will be redirected
+      console.log('✅ [Google Login] Redirect initiated')
       
     } catch (error: any) {
-      console.error('[Google Login] Failed:', error)
+      console.error('❌ [Google Login] Failed:', error)
       toast.error('Login dengan Google gagal. Silakan coba lagi.')
       setGoogleLoading(false)
     }
   }
 
-  const clearStorageAndRetry = () => {
+  const clearAuthCookies = () => {
     try {
-      localStorage.clear()
-      sessionStorage.clear()
-      document.cookie.split(";").forEach((c) => {
-        const name = c.split("=")[0].trim()
-        document.cookie = name + "=;expires=Thu, 01 Jan 1970 00:00:00 UTC;path=/"
-        document.cookie = name + "=;expires=Thu, 01 Jan 1970 00:00:00 UTC;path=/;domain=" + window.location.hostname
+      console.log('🧹 [Clear] Clearing auth cookies...')
+      
+      // Only clear Supabase auth cookies
+      const cookies = document.cookie.split(';')
+      cookies.forEach(cookie => {
+        const name = cookie.split('=')[0].trim()
+        if (name.includes('sb-') || name.includes('supabase')) {
+          document.cookie = `${name}=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;`
+          document.cookie = `${name}=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/; domain=${window.location.hostname};`
+        }
       })
-      toast.success('Storage berhasil dibersihkan!')
+      
+      toast.success('Cache berhasil dibersihkan!')
+      console.log('✅ [Clear] Auth cookies cleared')
+      
       setTimeout(() => window.location.reload(), 1000)
     } catch (e) {
-      toast.error('Gagal membersihkan storage')
+      console.error('❌ [Clear] Error:', e)
+      toast.error('Gagal membersihkan cache')
     }
   }
 
@@ -218,7 +222,7 @@ function LoginForm() {
                   <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
                   <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"/>
                 </svg>
-                <span className="text-gray-700">Menghubungkan ke Google...</span>
+                <span className="text-gray-700">Menghubungkan...</span>
               </>
             ) : (
               <>
@@ -228,15 +232,15 @@ function LoginForm() {
                   <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
                   <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
                 </svg>
-                <span className="text-gray-700 font-medium">Lanjutkan dengan Google</span>
+                <span className="text-gray-700 font-medium">Google</span>
               </>
             )}
           </button>
 
-          {/* Troubleshooting */}
+          {/* Troubleshooting - Only clear cookies, NO localStorage */}
           <div className="mt-6 text-center">
             <button
-              onClick={clearStorageAndRetry}
+              onClick={clearAuthCookies}
               className="text-sm text-gray-500 hover:text-primary-600 underline transition-colors"
               disabled={loading || googleLoading}
             >
@@ -253,14 +257,11 @@ function LoginForm() {
           </p>
         </div>
 
-        {/* Additional Help */}
+        {/* Note about Cookie-based Auth */}
         <div className="mt-6 text-center">
-          <Link
-            href="/test-auth"
-            className="text-xs text-gray-400 hover:text-gray-600 transition-colors"
-          >
-            Alat Diagnostik →
-          </Link>
+          <p className="text-xs text-gray-400">
+            🔐 Menggunakan cookie-based authentication
+          </p>
         </div>
       </div>
     </div>
