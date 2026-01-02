@@ -18,6 +18,24 @@ const nextConfig = {
   eslint: {
     ignoreDuringBuilds: true,
   },
+  // Add headers for better cookie handling
+  async headers() {
+    return [
+      {
+        source: '/:path*',
+        headers: [
+          {
+            key: 'X-Frame-Options',
+            value: 'SAMEORIGIN',
+          },
+          {
+            key: 'X-Content-Type-Options',
+            value: 'nosniff',
+          },
+        ],
+      },
+    ]
+  },
 };
 
 module.exports = nextConfig;
