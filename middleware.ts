@@ -17,6 +17,7 @@ export async function middleware(request: NextRequest) {
           return request.cookies.get(name)?.value
         },
         set(name: string, value: string, options: CookieOptions) {
+          // Set cookie in both request and response
           request.cookies.set({
             name,
             value,
@@ -34,6 +35,7 @@ export async function middleware(request: NextRequest) {
           })
         },
         remove(name: string, options: CookieOptions) {
+          // Remove cookie from both request and response
           request.cookies.set({
             name,
             value: '',
@@ -54,14 +56,34 @@ export async function middleware(request: NextRequest) {
     }
   )
 
-  // Just refresh session, don't redirect
-  await supabase.auth.getSession()
+  // CRITICAL: Refresh session to ensure cookies are set
+  try {
+    const { data: { session }, error } = await supabase.auth.getSession()
+    
+    if (error) {
+      console.error('[Middleware] Session error:', error.message)
+    }
+    
+    // Log for debugging (remove in production)
+    if (session?.user) {
+      console.log('[Middleware] Session found for:', session.user.email)
+    }
+  } catch (error) {
+    console.error('[Middleware] Error:', error)
+  }
 
   return response
 }
 
 export const config = {
   matcher: [
+    /*
+     * Match all request paths except:
+     * - _next/static (static files)
+     * - _next/image (image optimization files)
+     * - favicon.ico (favicon file)
+     * - public files (images, etc)
+     */
     '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
   ],
 }
