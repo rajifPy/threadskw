@@ -17,29 +17,22 @@ export default function HomePage() {
   const [loading, setLoading] = useState(true)
   const supabase = createClient()
 
-  // Simplified auth check
   useEffect(() => {
-    // Wait for auth to finish loading
     if (authLoading) return
 
-    // No user -> redirect to login
     if (!user) {
-      router.replace('/login')
+      console.log('❌ No user, middleware should handle redirect')
       return
     }
 
-    // User exists but no profile -> redirect to debug
-    if (user && !profile) {
-      console.warn('⚠️ [HomePage] Profile missing')
+    if (!profile) {
+      console.warn('⚠️ Profile missing')
       router.replace('/debug')
       return
     }
 
-    // All good, fetch posts
-    if (user && profile) {
-      console.log('✅ [HomePage] Auth complete:', user.email)
-      fetchPosts()
-    }
+    console.log('✅ Auth complete, fetching posts')
+    fetchPosts()
   }, [authLoading, user, profile, router])
 
   const fetchPosts = async () => {
@@ -84,7 +77,7 @@ export default function HomePage() {
 
       setPosts(postsWithCounts)
     } catch (error: any) {
-      console.error('❌ [HomePage] Error fetching posts:', error)
+      console.error('❌ Error fetching posts:', error)
       toast.error('Gagal memuat posts')
     } finally {
       setLoading(false)
@@ -94,19 +87,11 @@ export default function HomePage() {
   useEffect(() => {
     if (!user || !profile) return
 
-    console.log('📊 [HomePage] Setting up real-time subscriptions...')
-    
     const postsChannel = supabase
       .channel('posts-changes')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'posts' }, () => {
-        fetchPosts()
-      })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'likes' }, () => {
-        fetchPosts()
-      })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'comments' }, () => {
-        fetchPosts()
-      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'posts' }, fetchPosts)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'likes' }, fetchPosts)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'comments' }, fetchPosts)
       .subscribe()
 
     return () => {
@@ -114,10 +99,9 @@ export default function HomePage() {
     }
   }, [user, profile])
 
-  // Show loading ONLY during auth check
   if (authLoading) {
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center bg-primary-50">
+      <div className="min-h-screen flex items-center justify-center bg-primary-50">
         <div className="text-center">
           <div className="animate-spin rounded-full h-16 w-16 border-t-2 border-b-2 border-primary-500 mx-auto mb-4"></div>
           <p className="text-gray-600 font-medium">Memuat...</p>
@@ -126,7 +110,6 @@ export default function HomePage() {
     )
   }
 
-  // Don't render if redirecting
   if (!user || !profile) {
     return null
   }
