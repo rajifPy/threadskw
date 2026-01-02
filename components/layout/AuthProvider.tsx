@@ -1,6 +1,6 @@
 'use client'
 
-import { createContext, useContext, useEffect, useState, useCallback } from 'react'
+import { createContext, useContext, useEffect, useState, useCallback, useRef } from 'react'
 import { User } from '@supabase/supabase-js'
 import { createClient } from '@/lib/supabase/client'
 import { Profile } from '@/lib/supabase/types'
@@ -34,6 +34,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [profile, setProfile] = useState<Profile | null>(null)
   const [loading, setLoading] = useState(true)
   const supabase = createClient()
+  const initializingRef = useRef(false)
+  const authStateReceivedRef = useRef(false)
 
   const createProfileForUser = async (userId: string, userMetadata: any): Promise<Profile | null> => {
     try {
@@ -85,7 +87,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       console.log('🔍 [AuthProvider] Fetching profile for user:', userId)
       
       let profile = null
-      const maxAttempts = 5
+      const maxAttempts = 6
       
       for (let attempt = 1; attempt <= maxAttempts; attempt++) {
         console.log(`🔄 [AuthProvider] Fetch attempt ${attempt}/${maxAttempts}`)
@@ -107,7 +109,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
         
         if (!profileData && attempt < maxAttempts) {
-          const delay = Math.min(1000 * Math.pow(1.5, attempt - 1), 5000)
+          const delay = attempt === 1 ? 500 : Math.min(1000 * attempt, 4000)
           console.log(`⏳ [AuthProvider] Waiting ${delay}ms before next attempt...`)
           await new Promise(resolve => setTimeout(resolve, delay))
         }
@@ -135,127 +137,93 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     let mounted = true
-    let initTimeout: NodeJS.Timeout
-    let sessionCheckAborted = false
+    let fallbackTimeout: NodeJS.Timeout
 
-    const initAuth = async () => {
-      try {
-        console.log('🚀 [AuthProvider] Initializing auth...')
-        
-        // Create abort controller for session check
-        const controller = new AbortController()
-        
-        // Set timeout to abort session check
-        const timeoutId = setTimeout(() => {
-          sessionCheckAborted = true
-          controller.abort()
-          console.warn('⏱️ [AuthProvider] Session check timeout, continuing without session')
-          if (mounted) {
-            setUser(null)
-            setProfile(null)
-            setLoading(false)
-          }
-        }, 8000) // 8 second timeout instead of 15
-        
-        try {
-          const { data: { session }, error } = await supabase.auth.getSession()
-          
-          clearTimeout(timeoutId)
-          
-          if (sessionCheckAborted) {
-            console.log('⚠️ [AuthProvider] Session check was aborted')
-            return
-          }
-          
-          if (error) {
-            console.error('❌ [AuthProvider] Error getting session:', error)
-          }
-
-          if (mounted) {
-            if (session?.user) {
-              console.log('✅ [AuthProvider] User session found:', session.user.email)
-              setUser(session.user)
-              
-              const profileData = await fetchProfile(session.user.id, session.user.user_metadata)
-              setProfile(profileData)
-              
-              if (!profileData) {
-                console.error('⚠️ [AuthProvider] Failed to create/fetch profile')
-              }
-            } else {
-              console.log('ℹ️ [AuthProvider] No session found')
-              setUser(null)
-              setProfile(null)
-            }
-            setLoading(false)
-          }
-        } catch (fetchError: any) {
-          clearTimeout(timeoutId)
-          
-          if (fetchError.name === 'AbortError') {
-            console.log('⚠️ [AuthProvider] Session fetch aborted due to timeout')
-          } else {
-            console.error('❌ [AuthProvider] Error fetching session:', fetchError)
-          }
-          
-          if (mounted) {
-            setUser(null)
-            setProfile(null)
-            setLoading(false)
-          }
-        }
-      } catch (error) {
-        console.error('❌ [AuthProvider] Error in initAuth:', error)
-        if (mounted) {
-          setUser(null)
-          setProfile(null)
-          setLoading(false)
-        }
-      }
-    }
-
-    // Fallback timeout - force loading to false after 10 seconds
-    initTimeout = setTimeout(() => {
-      if (mounted && loading) {
-        console.warn('⏱️ [AuthProvider] Force stopping loading state after 10s')
-        setLoading(false)
-      }
-    }, 10000)
-
-    initAuth()
-
+    // Setup auth state listener FIRST (most reliable)
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
         console.log('🔄 [AuthProvider] Auth state changed:', event, session?.user?.email)
+        authStateReceivedRef.current = true
         
-        if (mounted) {
-          if (session?.user) {
-            setUser(session.user)
-            
-            if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
-              console.log('🔐 [AuthProvider] Sign in detected, ensuring profile exists...')
-              const profileData = await fetchProfile(session.user.id, session.user.user_metadata)
-              setProfile(profileData)
-            } else {
-              const profileData = await fetchProfile(session.user.id, session.user.user_metadata)
-              setProfile(profileData)
-            }
-          } else {
-            setUser(null)
-            setProfile(null)
+        if (!mounted) return
+        
+        if (session?.user) {
+          setUser(session.user)
+          
+          // Fetch profile for any auth event with user
+          if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || event === 'INITIAL_SESSION') {
+            console.log('🔐 [AuthProvider] User session detected, fetching profile...')
+            const profileData = await fetchProfile(session.user.id, session.user.user_metadata)
+            setProfile(profileData)
           }
           
           setLoading(false)
+        } else if (event === 'SIGNED_OUT') {
+          console.log('👋 [AuthProvider] User signed out')
+          setUser(null)
+          setProfile(null)
+          setLoading(false)
+        } else {
+          // No session and not signed out - still loading
+          console.log('ℹ️ [AuthProvider] No session in auth state')
         }
       }
     )
 
+    // Then try getSession (but don't rely on it exclusively)
+    const initAuth = async () => {
+      if (initializingRef.current) return
+      initializingRef.current = true
+
+      try {
+        console.log('🚀 [AuthProvider] Checking initial session...')
+        
+        const { data: { session }, error } = await supabase.auth.getSession()
+        
+        if (error) {
+          console.error('❌ [AuthProvider] Error getting session:', error)
+        }
+
+        // Only update state if auth state change hasn't already handled it
+        if (mounted && !authStateReceivedRef.current) {
+          if (session?.user) {
+            console.log('✅ [AuthProvider] Initial session found:', session.user.email)
+            setUser(session.user)
+            
+            const profileData = await fetchProfile(session.user.id, session.user.user_metadata)
+            setProfile(profileData)
+          } else {
+            console.log('ℹ️ [AuthProvider] No initial session')
+          }
+          setLoading(false)
+        } else {
+          console.log('ℹ️ [AuthProvider] Auth state already handled by listener')
+        }
+      } catch (error) {
+        console.error('❌ [AuthProvider] Error in initAuth:', error)
+        if (mounted && !authStateReceivedRef.current) {
+          setLoading(false)
+        }
+      }
+    }
+
+    // Start initialization
+    initAuth()
+
+    // Fallback: Stop loading after 12 seconds no matter what
+    fallbackTimeout = setTimeout(() => {
+      if (mounted && loading && !user) {
+        console.warn('⏱️ [AuthProvider] Fallback timeout - stopping loading state')
+        setLoading(false)
+      }
+    }, 12000)
+
     return () => {
       mounted = false
-      clearTimeout(initTimeout)
+      clearTimeout(fallbackTimeout)
       subscription.unsubscribe()
     }
-  }, [fetchProfile, supabase.auth])
+  }, []) // Only run once on mount
 
   const signOut = async () => {
     try {
