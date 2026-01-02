@@ -4,7 +4,7 @@ import { Database } from './types'
 let client: ReturnType<typeof createBrowserClient<Database>> | null = null
 
 export const createClient = () => {
-  // Create singleton client to avoid multiple instances
+  // Return existing client if already created
   if (client) return client
 
   client = createBrowserClient<Database>(
@@ -17,19 +17,30 @@ export const createClient = () => {
         detectSessionInUrl: true,
         persistSession: true,
         storage: typeof window !== 'undefined' ? window.localStorage : undefined,
-        storageKey: 'supabase.auth.token', // Explicit storage key
-        debug: true, // Enable debug mode
+        storageKey: 'sb-auth-token',
+        debug: false, // Disable debug in production for better performance
       },
-      // Add cookie options for better compatibility
-      cookieOptions: {
-        name: 'sb-auth-token',
-        domain: typeof window !== 'undefined' ? window.location.hostname : undefined,
-        path: '/',
-        sameSite: 'lax',
-        secure: typeof window !== 'undefined' ? window.location.protocol === 'https:' : true,
+      global: {
+        headers: {
+          'x-client-info': 'supabase-js-web',
+        },
+      },
+      db: {
+        schema: 'public',
+      },
+      // Optimize realtime settings
+      realtime: {
+        params: {
+          eventsPerSecond: 10,
+        },
       },
     }
   )
 
   return client
+}
+
+// Helper to reset client (useful for logout or debugging)
+export const resetClient = () => {
+  client = null
 }
