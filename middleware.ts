@@ -2,14 +2,16 @@ import { createServerClient, type CookieOptions } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 
 export async function middleware(request: NextRequest) {
-  // Create response object
+  const { pathname } = request.nextUrl
+
+  // Create a response object
   let response = NextResponse.next({
     request: {
       headers: request.headers,
     },
   })
 
-  // Create Supabase client with proper cookie handling
+  // Create Supabase client
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
@@ -19,16 +21,10 @@ export async function middleware(request: NextRequest) {
           return request.cookies.get(name)?.value
         },
         set(name: string, value: string, options: CookieOptions) {
-          // Set cookie in both request and response
           request.cookies.set({
             name,
             value,
             ...options,
-          })
-          response = NextResponse.next({
-            request: {
-              headers: request.headers,
-            },
           })
           response.cookies.set({
             name,
@@ -37,41 +33,38 @@ export async function middleware(request: NextRequest) {
           })
         },
         remove(name: string, options: CookieOptions) {
-          // Remove cookie from both request and response
-          request.cookies.set({
-            name,
-            value: '',
-            ...options,
-          })
-          response = NextResponse.next({
-            request: {
-              headers: request.headers,
-            },
-          })
-          response.cookies.set({
-            name,
-            value: '',
-            ...options,
-          })
+          request.cookies.delete(name)
+          response.cookies.delete(name)
         },
       },
     }
   )
 
-  // CRITICAL: Refresh session to ensure cookies are valid
-  try {
-    const { data: { session }, error } = await supabase.auth.getSession()
-    
-    if (error) {
-      console.error('[Middleware] Session error:', error.message)
-    }
-    
-    // Optional: Log for debugging (remove in production)
-    if (session?.user) {
-      console.log('[Middleware] Session active for:', session.user.email)
-    }
-  } catch (error) {
-    console.error('[Middleware] Error:', error)
+  // 🔥 CRITICAL: Use getUser() instead of getSession()
+  const { data: { user }, error } = await supabase.auth.getUser()
+
+  // Public routes that don't require auth
+  const publicRoutes = ['/login', '/register', '/auth/callback', '/test-auth']
+  const isPublicRoute = publicRoutes.some(route => pathname.startsWith(route))
+
+  // Protected routes
+  const protectedRoutes = ['/', '/profile', '/post', '/debug']
+  const isProtectedRoute = protectedRoutes.some(route => 
+    pathname === route || pathname.startsWith(route + '/')
+  )
+
+  // If no user and trying to access protected route -> redirect to login
+  if (!user && isProtectedRoute) {
+    console.log(`[Middleware] No user, redirecting ${pathname} -> /login`)
+    const redirectUrl = new URL('/login', request.url)
+    return NextResponse.redirect(redirectUrl)
+  }
+
+  // If user exists and trying to access login/register -> redirect to home
+  if (user && (pathname === '/login' || pathname === '/register')) {
+    console.log(`[Middleware] User exists, redirecting ${pathname} -> /`)
+    const redirectUrl = new URL('/', request.url)
+    return NextResponse.redirect(redirectUrl)
   }
 
   return response
@@ -79,13 +72,6 @@ export async function middleware(request: NextRequest) {
 
 export const config = {
   matcher: [
-    /*
-     * Match all request paths except:
-     * - _next/static (static files)
-     * - _next/image (image optimization files)
-     * - favicon.ico (favicon file)
-     * - public files (images, etc)
-     */
     '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
   ],
 }
