@@ -11,6 +11,10 @@ export const metadata: Metadata = {
   description: 'Platform diskusi ide, politik, dan bisnis untuk anak kost',
 }
 
+// IMPORTANT: Disable static optimization for auth pages
+export const dynamic = 'force-dynamic'
+export const revalidate = 0
+
 export default function RootLayout({
   children,
 }: {
@@ -27,3 +31,5 @@ export default function RootLayout({
     </html>
   )
 }
+export const dynamic = 'force-dynamic'
+export const revalidate = 0
