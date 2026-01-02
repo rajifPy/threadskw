@@ -2,12 +2,14 @@ import { createServerClient, type CookieOptions } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 
 export async function middleware(request: NextRequest) {
+  // Create response object
   let response = NextResponse.next({
     request: {
       headers: request.headers,
     },
   })
 
+  // Create Supabase client with proper cookie handling
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
@@ -56,7 +58,7 @@ export async function middleware(request: NextRequest) {
     }
   )
 
-  // CRITICAL: Refresh session to ensure cookies are set
+  // CRITICAL: Refresh session to ensure cookies are valid
   try {
     const { data: { session }, error } = await supabase.auth.getSession()
     
@@ -64,9 +66,9 @@ export async function middleware(request: NextRequest) {
       console.error('[Middleware] Session error:', error.message)
     }
     
-    // Log for debugging (remove in production)
+    // Optional: Log for debugging (remove in production)
     if (session?.user) {
-      console.log('[Middleware] Session found for:', session.user.email)
+      console.log('[Middleware] Session active for:', session.user.email)
     }
   } catch (error) {
     console.error('[Middleware] Error:', error)
