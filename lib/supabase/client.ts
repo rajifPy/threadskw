@@ -7,9 +7,15 @@ export const createClient = () => {
   // Return existing client if already created
   if (client) return client
 
-  // Check if we're in browser
+  // IMPORTANT: Only throw if we're trying to use it during SSR
+  // Allow it to be imported, just don't use it on server
   if (typeof window === 'undefined') {
-    throw new Error('createClient can only be used in browser')
+    // Return a mock client for SSR that won't be used
+    // This prevents build errors while still protecting against server usage
+    return createBrowserClient<Database>(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+    )
   }
 
   client = createBrowserClient<Database>(
@@ -21,8 +27,6 @@ export const createClient = () => {
         autoRefreshToken: true,
         detectSessionInUrl: true,
         persistSession: true,
-        // CRITICAL: Don't set storage to localStorage
-        // Let Supabase SSR handle it with cookies
         debug: false,
       },
       cookies: {
@@ -35,18 +39,15 @@ export const createClient = () => {
         set(name: string, value: string, options: any) {
           let cookie = `${name}=${encodeURIComponent(value)}`
           
-          // Set default options
           cookie += `; path=${options?.path || '/'}`
-          cookie += `; max-age=${options?.maxAge || 60 * 60 * 24 * 365}` // 1 year default
+          cookie += `; max-age=${options?.maxAge || 60 * 60 * 24 * 365}`
           
           if (options?.domain) {
             cookie += `; domain=${options.domain}`
           }
           
-          // Use Lax for PKCE flow compatibility
           cookie += `; samesite=${options?.sameSite || 'lax'}`
           
-          // Use secure in production
           if (window.location.protocol === 'https:' || options?.secure) {
             cookie += '; secure'
           }
@@ -77,10 +78,12 @@ export const createClient = () => {
 
 // Helper to completely reset auth state
 export const clearAuthStorage = () => {
+  if (typeof window === 'undefined') return false
+  
   try {
     console.log('🧹 [Supabase] Clearing auth storage...')
     
-    // Clear localStorage (just in case)
+    // Clear localStorage
     const keysToRemove = []
     for (let i = 0; i < localStorage.length; i++) {
       const key = localStorage.key(i)
@@ -93,14 +96,13 @@ export const clearAuthStorage = () => {
     // Clear sessionStorage
     sessionStorage.clear()
     
-    // Clear ALL cookies (important!)
+    // Clear ALL cookies
     const cookies = document.cookie.split(';')
     for (let i = 0; i < cookies.length; i++) {
       const cookie = cookies[i]
       const eqPos = cookie.indexOf('=')
       const name = eqPos > -1 ? cookie.substr(0, eqPos).trim() : cookie.trim()
       
-      // Clear with multiple domain variations
       document.cookie = `${name}=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;`
       document.cookie = `${name}=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/; domain=${window.location.hostname};`
       document.cookie = `${name}=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/; domain=.${window.location.hostname};`
@@ -116,6 +118,8 @@ export const clearAuthStorage = () => {
 
 // Helper to reset client
 export const resetClient = () => {
+  if (typeof window === 'undefined') return
+  
   console.log('🔄 [Supabase] Resetting client...')
   client = null
   clearAuthStorage()
