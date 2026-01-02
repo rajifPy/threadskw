@@ -17,16 +17,23 @@ function LoginForm() {
 
   useEffect(() => {
     const checkSession = async () => {
-      const { data: { session } } = await supabase.auth.getSession()
-      if (session) {
-        console.log('✅ [Login] Already logged in, redirecting...')
-        router.replace('/')
-      } else {
+      try {
+        const { data: { session } } = await supabase.auth.getSession()
+        if (session?.user) {
+          console.log('✅ [Login] Already logged in, redirecting to home...')
+          // Force redirect menggunakan window.location untuk memastikan
+          window.location.href = '/'
+          return
+        }
+      } catch (error) {
+        console.error('❌ [Login] Error checking session:', error)
+      } finally {
         setChecking(false)
       }
     }
+    
     checkSession()
-  }, [router, supabase])
+  }, [supabase, router])
 
   useEffect(() => {
     const error = searchParams.get('error')
@@ -71,7 +78,10 @@ function LoginForm() {
       console.log('✅ [Login] Login successful:', data.user?.email)
       toast.success('Login berhasil!')
       
-      window.location.href = '/'
+      // Force redirect
+      setTimeout(() => {
+        window.location.href = '/'
+      }, 500)
     } catch (error: any) {
       console.error('❌ [Login] Login error:', error)
       
@@ -91,13 +101,9 @@ function LoginForm() {
     try {
       console.log('🧹 [Login] Clearing storage...')
       
-      // Clear localStorage
       localStorage.clear()
-      
-      // Clear sessionStorage
       sessionStorage.clear()
       
-      // Clear all cookies
       document.cookie.split(";").forEach((c) => {
         document.cookie = c
           .replace(/^ +/, "")
@@ -106,7 +112,6 @@ function LoginForm() {
       
       toast.success('Storage dibersihkan! Silakan coba login lagi.')
       
-      // Reload after a short delay
       setTimeout(() => {
         window.location.reload()
       }, 1000)
@@ -120,10 +125,7 @@ function LoginForm() {
     try {
       console.log('🔐 [Login] Starting Google OAuth...')
       
-      // Clear any stale auth data first
       await supabase.auth.signOut({ scope: 'local' })
-      
-      // Small delay to ensure signout completes
       await new Promise(resolve => setTimeout(resolve, 500))
       
       const origin = window.location.origin
@@ -147,7 +149,6 @@ function LoginForm() {
       if (error) {
         console.error('❌ [Login] Google OAuth error:', error)
         
-        // If PKCE error, clear storage and show message
         if (error.message?.toLowerCase().includes('pkce')) {
           toast.error('PKCE error terdeteksi. Membersihkan cache...')
           clearStorageAndRetry()
@@ -250,7 +251,6 @@ function LoginForm() {
           <span>Google</span>
         </button>
 
-        {/* Troubleshooting Button */}
         <div className="text-center">
           <button
             onClick={clearStorageAndRetry}
