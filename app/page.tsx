@@ -15,30 +15,36 @@ export default function HomePage() {
   const router = useRouter()
   const [posts, setPosts] = useState<PostWithProfile[]>([])
   const [loading, setLoading] = useState(true)
+  const [mounted, setMounted] = useState(false)
   const supabase = createClient()
 
-  // Check auth and redirect - NO TIMEOUT, just wait for authLoading to finish
+  // Ensure we're client-side
   useEffect(() => {
-    // Wait until auth is fully loaded
+    setMounted(true)
+  }, [])
+
+  // Check auth and redirect
+  useEffect(() => {
+    if (!mounted) return
+    
     if (authLoading) {
-      console.log('⏳ [HomePage] Waiting for auth to load...')
+      console.log('⏳ [HomePage] Waiting for auth...')
       return
     }
 
-    // Auth loading complete, now check state
     if (!user) {
-      console.log('ℹ️ [HomePage] No user found, redirecting to login...')
+      console.log('ℹ️ [HomePage] No user, redirecting to login')
       router.replace('/login')
     } else if (user && !profile) {
-      console.warn('⚠️ [HomePage] User exists but profile is null, redirecting to debug...')
+      console.warn('⚠️ [HomePage] User exists but profile missing, redirecting to debug')
       router.replace('/debug')
     } else if (user && profile) {
       console.log('✅ [HomePage] User authenticated:', user.email, profile.username)
     }
-  }, [authLoading, user, profile, router])
+  }, [mounted, authLoading, user, profile, router])
 
   const fetchPosts = async () => {
-    if (!user) return
+    if (!user || !mounted) return
     
     try {
       setLoading(true)
@@ -87,7 +93,7 @@ export default function HomePage() {
   }
 
   useEffect(() => {
-    if (user && profile) {
+    if (user && profile && mounted) {
       console.log('📊 [HomePage] Fetching posts...')
       fetchPosts()
 
@@ -111,16 +117,15 @@ export default function HomePage() {
         supabase.removeChannel(postsChannel)
       }
     }
-  }, [user, profile])
+  }, [user, profile, mounted])
 
-  // Show loading while checking auth
-  if (authLoading) {
+  // Show loading while checking auth or not mounted
+  if (!mounted || authLoading) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center bg-primary-50">
         <div className="text-center">
           <div className="animate-spin rounded-full h-16 w-16 border-t-2 border-b-2 border-primary-500 mx-auto mb-4"></div>
-          <p className="text-gray-600 font-medium">Loading your account...</p>
-          <p className="text-gray-400 text-sm mt-2">Please wait...</p>
+          <p className="text-gray-600 font-medium">Loading...</p>
         </div>
       </div>
     )
@@ -167,5 +172,4 @@ export default function HomePage() {
     </div>
   )
 }
-
 export const dynamic = 'force-dynamic'
