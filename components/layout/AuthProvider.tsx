@@ -97,11 +97,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     const initAuth = async () => {
       try {
-        // 🔥 CRITICAL: Use getUser() instead of getSession()
+        console.log('🔐 [Auth] Initializing auth...')
+        
+        // CRITICAL: Use getUser() to validate session with server
         const { data: { user: currentUser }, error } = await supabase.auth.getUser()
         
         if (error) {
-          console.error('❌ Auth error:', error)
+          console.error('❌ [Auth] Auth error:', error)
           if (mounted) {
             setUser(null)
             setProfile(null)
@@ -111,20 +113,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
 
         if (currentUser && mounted) {
-          console.log('✅ User authenticated:', currentUser.email)
+          console.log('✅ [Auth] User authenticated:', currentUser.email)
           setUser(currentUser)
           
           const profileData = await fetchProfile(currentUser.id, currentUser.user_metadata)
           if (mounted) {
             setProfile(profileData)
           }
+        } else {
+          console.log('ℹ️ [Auth] No user session')
         }
         
         if (mounted) {
           setLoading(false)
         }
       } catch (error) {
-        console.error('❌ Init error:', error)
+        console.error('❌ [Auth] Init error:', error)
         if (mounted) {
           setUser(null)
           setProfile(null)
@@ -133,22 +137,29 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     }
 
+    // Subscribe to auth state changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
-        console.log('🔄 Auth event:', event)
+        console.log('🔄 [Auth] Auth event:', event)
         
         if (!mounted) return
 
         if (event === 'SIGNED_IN' && session?.user) {
+          console.log('✅ [Auth] User signed in:', session.user.email)
           setUser(session.user)
           const profileData = await fetchProfile(session.user.id, session.user.user_metadata)
           setProfile(profileData)
           setLoading(false)
         } else if (event === 'SIGNED_OUT') {
+          console.log('👋 [Auth] User signed out')
           setUser(null)
           setProfile(null)
           setLoading(false)
         } else if (event === 'TOKEN_REFRESHED' && session?.user) {
+          console.log('🔄 [Auth] Token refreshed')
+          setUser(session.user)
+        } else if (event === 'USER_UPDATED' && session?.user) {
+          console.log('🔄 [Auth] User updated')
           setUser(session.user)
         }
       }
@@ -164,16 +175,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const signOut = async () => {
     try {
+      console.log('👋 [Auth] Signing out...')
+      
+      // Sign out from Supabase (this will clear cookies)
       await supabase.auth.signOut()
+      
       setUser(null)
       setProfile(null)
       
-      document.cookie.split(';').forEach(cookie => {
+      // Clear only Supabase auth cookies
+      const cookies = document.cookie.split(';')
+      cookies.forEach(cookie => {
         const name = cookie.split('=')[0].trim()
-        document.cookie = `${name}=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;`
+        if (name.includes('sb-') || name.includes('supabase')) {
+          document.cookie = `${name}=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;`
+        }
       })
+      
+      console.log('✅ [Auth] Sign out complete')
     } catch (error) {
-      console.error('❌ Sign out error:', error)
+      console.error('❌ [Auth] Sign out error:', error)
     }
   }
 
