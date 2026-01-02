@@ -9,8 +9,14 @@ import { useRouter } from 'next/navigation'
 export default function QuickFixPage() {
   const { user, profile, loading, refreshProfile } = useAuth()
   const [fixing, setFixing] = useState(false)
+  const [logs, setLogs] = useState<string[]>([])
   const supabase = createClient()
   const router = useRouter()
+
+  const addLog = (message: string) => {
+    console.log(message)
+    setLogs(prev => [...prev, `${new Date().toLocaleTimeString()}: ${message}`])
+  }
 
   const attemptProfileFix = async () => {
     if (!user) {
@@ -19,60 +25,112 @@ export default function QuickFixPage() {
     }
 
     setFixing(true)
+    setLogs([])
+    
     try {
-      console.log('[QuickFix] Attempting to fix profile for:', user.email)
+      addLog(`[Fix] Starting profile fix for user: ${user.email}`)
+      addLog(`[Fix] User ID: ${user.id}`)
 
-      // First, check if profile exists
-      const { data: existingProfile } = await supabase
+      // Step 1: Check if profile exists
+      addLog('[Fix] Step 1: Checking if profile exists...')
+      const { data: existingProfile, error: checkError } = await supabase
         .from('profiles')
         .select('*')
         .eq('id', user.id)
         .maybeSingle()
 
+      if (checkError && checkError.code !== 'PGRST116') {
+        addLog(`[Fix] Error checking profile: ${checkError.message}`)
+        throw checkError
+      }
+
       if (existingProfile) {
-        console.log('[QuickFix] Profile already exists:', existingProfile)
+        addLog('[Fix] Profile already exists!')
+        addLog(`[Fix] Username: ${existingProfile.username}`)
         toast.success('Profile already exists! Refreshing...')
         await refreshProfile()
-        setTimeout(() => router.push('/'), 1000)
+        
+        await new Promise(resolve => setTimeout(resolve, 1500))
+        
+        addLog('[Fix] Redirecting to home...')
+        router.push('/')
         return
       }
 
-      // Profile doesn't exist, create it
-      console.log('[QuickFix] Creating profile...')
+      // Step 2: Profile doesn't exist, create it
+      addLog('[Fix] Step 2: Profile not found, creating new profile...')
       
-      const username = (
+      const rawUsername = 
         user.user_metadata?.username ||
         user.user_metadata?.preferred_username ||
+        user.user_metadata?.name ||
         user.email?.split('@')[0] ||
         `user_${user.id.substring(0, 8)}`
-      ).toLowerCase().replace(/[^a-z0-9_]/g, '_')
 
-      const { data: newProfile, error } = await supabase
+      addLog(`[Fix] Raw username: ${rawUsername}`)
+
+      const cleanUsername = rawUsername
+        .toLowerCase()
+        .replace(/\s+/g, '_')
+        .replace(/[^a-z0-9_]/g, '')
+        .substring(0, 30)
+
+      addLog(`[Fix] Clean username: ${cleanUsername}`)
+
+      // Check if username is taken
+      addLog('[Fix] Step 3: Checking if username is available...')
+      const { data: usernameCheck } = await supabase
         .from('profiles')
-        .insert({
-          id: user.id,
-          username: username,
-          full_name: user.user_metadata?.full_name || user.user_metadata?.name || null,
-          avatar_url: user.user_metadata?.avatar_url || user.user_metadata?.picture || null,
-        })
+        .select('username')
+        .eq('username', cleanUsername)
+        .maybeSingle()
+
+      let finalUsername = cleanUsername
+      if (usernameCheck) {
+        const suffix = Math.floor(Math.random() * 9999)
+        finalUsername = `${cleanUsername}_${suffix}`
+        addLog(`[Fix] Username taken, using: ${finalUsername}`)
+      }
+
+      // Step 4: Insert profile
+      addLog('[Fix] Step 4: Creating profile...')
+      const profileData = {
+        id: user.id,
+        username: finalUsername,
+        full_name: user.user_metadata?.full_name || user.user_metadata?.name || null,
+        avatar_url: user.user_metadata?.avatar_url || user.user_metadata?.picture || null,
+      }
+
+      addLog(`[Fix] Profile data: ${JSON.stringify(profileData, null, 2)}`)
+
+      const { data: newProfile, error: insertError } = await supabase
+        .from('profiles')
+        .insert(profileData)
         .select()
         .single()
 
-      if (error) {
-        console.error('[QuickFix] Error creating profile:', error)
-        throw error
+      if (insertError) {
+        addLog(`[Fix] ERROR creating profile: ${insertError.message}`)
+        addLog(`[Fix] Error code: ${insertError.code}`)
+        throw insertError
       }
 
-      console.log('[QuickFix] Profile created successfully:', newProfile)
+      addLog('[Fix] ✅ Profile created successfully!')
+      addLog(`[Fix] New profile: ${JSON.stringify(newProfile, null, 2)}`)
+      
       toast.success('Profile created successfully!')
       
+      addLog('[Fix] Step 5: Refreshing profile context...')
       await refreshProfile()
       
-      setTimeout(() => {
-        router.push('/')
-      }, 1500)
+      await new Promise(resolve => setTimeout(resolve, 2000))
+      
+      addLog('[Fix] Step 6: Redirecting to home...')
+      router.push('/')
+      
     } catch (error: any) {
-      console.error('[QuickFix] Fix failed:', error)
+      addLog(`[Fix] ❌ FAILED: ${error.message}`)
+      console.error('[Fix] Full error:', error)
       toast.error('Failed to fix profile: ' + error.message)
     } finally {
       setFixing(false)
@@ -133,6 +191,13 @@ export default function QuickFixPage() {
               </div>
               
               <div className="flex items-center justify-between">
+                <span className="text-gray-700">User ID:</span>
+                <span className="font-mono text-xs text-gray-600 break-all">
+                  {user?.id || 'N/A'}
+                </span>
+              </div>
+              
+              <div className="flex items-center justify-between">
                 <span className="text-gray-700">Profile:</span>
                 <span className={`font-semibold ${profile ? 'text-green-600' : 'text-red-600'}`}>
                   {profile ? profile.username : 'NULL'}
@@ -148,7 +213,7 @@ export default function QuickFixPage() {
                 <svg className="w-6 h-6 text-red-600 mt-0.5 mr-3 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
                   <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
                 </svg>
-                <div>
+                <div className="flex-1">
                   <h3 className="text-red-800 font-semibold mb-1">Profile Missing!</h3>
                   <p className="text-red-700 text-sm mb-3">
                     Your user account exists but the profile was not created. This can happen during Google OAuth signup.
@@ -156,7 +221,7 @@ export default function QuickFixPage() {
                   <button
                     onClick={attemptProfileFix}
                     disabled={fixing}
-                    className="bg-red-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="bg-red-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                   >
                     {fixing ? 'Creating Profile...' : '🔧 Fix Profile Now'}
                   </button>
@@ -199,6 +264,18 @@ export default function QuickFixPage() {
             </div>
           )}
 
+          {/* Debug Logs */}
+          {logs.length > 0 && (
+            <div className="bg-gray-900 rounded-lg p-4 mb-6 max-h-64 overflow-y-auto">
+              <h3 className="text-white font-semibold mb-2">📋 Debug Logs</h3>
+              <div className="font-mono text-xs text-green-400 space-y-1">
+                {logs.map((log, i) => (
+                  <div key={i}>{log}</div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* Actions */}
           <div className="space-y-4">
             <button
@@ -209,10 +286,10 @@ export default function QuickFixPage() {
             </button>
 
             <button
-              onClick={() => router.push('/debug')}
+              onClick={() => router.push('/test-auth')}
               className="w-full py-3 px-4 border border-gray-300 text-gray-700 rounded-lg font-medium hover:bg-gray-50 transition-colors"
             >
-              🔍 View Debug Info
+              🔍 View Auth Test
             </button>
 
             <button
@@ -227,9 +304,10 @@ export default function QuickFixPage() {
           <div className="mt-8 pt-6 border-t border-gray-200">
             <h3 className="font-semibold text-gray-900 mb-3">Troubleshooting Steps:</h3>
             <ol className="list-decimal list-inside space-y-2 text-sm text-gray-700">
-              <li>If profile is missing, click "Fix Profile Now"</li>
-              <li>If still stuck, try "Clear Storage & Re-login"</li>
-              <li>Check "Debug Info" for detailed status</li>
+              <li>If profile is missing, click "🔧 Fix Profile Now"</li>
+              <li>Watch the debug logs to see what's happening</li>
+              <li>If still stuck, try "🧹 Clear Storage & Re-login"</li>
+              <li>Check "🔍 Auth Test" for detailed diagnostics</li>
               <li>Contact support if issue persists</li>
             </ol>
           </div>
