@@ -15,22 +15,35 @@ export default function HomePage() {
   const router = useRouter()
   const [posts, setPosts] = useState<PostWithProfile[]>([])
   const [loading, setLoading] = useState(true)
+  const [redirecting, setRedirecting] = useState(false)
   const supabase = createClient()
 
-  // Check auth and redirect
+  // Check auth and redirect with timeout protection
   useEffect(() => {
-    if (!authLoading) {
-      if (!user) {
-        console.log('[HomePage] No user found, redirecting to login...')
+    if (authLoading) return // Still loading, wait
+
+    const redirectTimeout = setTimeout(() => {
+      if (!user && !authLoading) {
+        console.log('⏱️ [HomePage] Auth timeout, redirecting to login...')
+        setRedirecting(true)
         router.replace('/login')
-      } else if (user && !profile) {
-        console.warn('[HomePage] User exists but profile is null')
-        // Redirect to debug page to fix profile
-        router.replace('/debug')
-      } else {
-        console.log('[HomePage] User authenticated:', user.email)
       }
+    }, 2000) // Give 2 seconds grace period
+
+    if (!user) {
+      console.log('ℹ️ [HomePage] No user found, will redirect to login...')
+      // Don't redirect immediately, wait for timeout
+    } else if (user && !profile) {
+      console.warn('⚠️ [HomePage] User exists but profile is null, redirecting to debug...')
+      clearTimeout(redirectTimeout)
+      setRedirecting(true)
+      router.replace('/debug')
+    } else if (user && profile) {
+      console.log('✅ [HomePage] User authenticated:', user.email)
+      clearTimeout(redirectTimeout)
     }
+
+    return () => clearTimeout(redirectTimeout)
   }, [authLoading, user, profile, router])
 
   const fetchPosts = async () => {
@@ -38,6 +51,7 @@ export default function HomePage() {
     
     try {
       setLoading(true)
+      
       const { data, error } = await supabase
         .from('posts')
         .select(`
@@ -51,6 +65,7 @@ export default function HomePage() {
           )
         `)
         .order('created_at', { ascending: false })
+        .limit(50) // Limit to improve performance
 
       if (error) throw error
 
@@ -72,8 +87,8 @@ export default function HomePage() {
       )
 
       setPosts(postsWithCounts)
-    } catch (error) {
-      console.error('Error fetching posts:', error)
+    } catch (error: any) {
+      console.error('❌ [HomePage] Error fetching posts:', error)
       toast.error('Gagal memuat posts')
     } finally {
       setLoading(false)
@@ -81,18 +96,21 @@ export default function HomePage() {
   }
 
   useEffect(() => {
-    if (user && profile) {
+    if (user && profile && !redirecting) {
       fetchPosts()
 
       const postsChannel = supabase
         .channel('posts-changes')
         .on('postgres_changes', { event: '*', schema: 'public', table: 'posts' }, () => {
+          console.log('🔄 [HomePage] Posts updated')
           fetchPosts()
         })
         .on('postgres_changes', { event: '*', schema: 'public', table: 'likes' }, () => {
+          console.log('🔄 [HomePage] Likes updated')
           fetchPosts()
         })
         .on('postgres_changes', { event: '*', schema: 'public', table: 'comments' }, () => {
+          console.log('🔄 [HomePage] Comments updated')
           fetchPosts()
         })
         .subscribe()
@@ -101,15 +119,17 @@ export default function HomePage() {
         supabase.removeChannel(postsChannel)
       }
     }
-  }, [user, profile])
+  }, [user, profile, redirecting])
 
   // Show loading while checking auth
-  if (authLoading) {
+  if (authLoading || redirecting) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-primary-50">
+      <div className="min-h-screen flex flex-col items-center justify-center bg-primary-50">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary-500 mx-auto"></div>
-          <p className="mt-4 text-gray-600">Loading...</p>
+          <div className="animate-spin rounded-full h-16 w-16 border-t-2 border-b-2 border-primary-500 mx-auto mb-4"></div>
+          <p className="text-gray-600 font-medium">
+            {redirecting ? 'Redirecting...' : 'Loading...'}
+          </p>
         </div>
       </div>
     )
@@ -117,7 +137,25 @@ export default function HomePage() {
 
   // Don't render if no user or profile (will redirect)
   if (!user || !profile) {
-    return null
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center bg-primary-50">
+        <div className="text-center max-w-md mx-auto px-4">
+          <div className="w-16 h-16 bg-yellow-100 rounded-full flex items-center justify-center mx-auto mb-4">
+            <svg className="w-8 h-8 text-yellow-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+            </svg>
+          </div>
+          <h2 className="text-xl font-bold text-gray-900 mb-2">Authentication Required</h2>
+          <p className="text-gray-600 mb-4">Please wait while we redirect you...</p>
+          <button
+            onClick={() => router.push('/login')}
+            className="px-6 py-2 bg-primary-500 text-white rounded-lg hover:bg-primary-600 transition-colors"
+          >
+            Go to Login
+          </button>
+        </div>
+      </div>
+    )
   }
 
   return (
@@ -133,6 +171,11 @@ export default function HomePage() {
           </div>
         ) : posts.length === 0 ? (
           <div className="bg-white rounded-xl shadow-md p-12 text-center">
+            <div className="w-16 h-16 bg-primary-100 rounded-full flex items-center justify-center mx-auto mb-4">
+              <svg className="w-8 h-8 text-primary-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+              </svg>
+            </div>
             <p className="text-gray-500">Belum ada post. Jadilah yang pertama membagikan opini!</p>
           </div>
         ) : (
