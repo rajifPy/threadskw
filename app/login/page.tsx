@@ -26,27 +26,15 @@ function LoginForm() {
       }
     }
     checkSession()
-  }, [])
+  }, [router, supabase])
 
   useEffect(() => {
     const error = searchParams.get('error')
     const message = searchParams.get('message')
     
     if (error === 'pkce_error') {
-      // Clear storage untuk fix PKCE error
-      try {
-        localStorage.clear()
-        sessionStorage.clear()
-        // Clear cookies
-        document.cookie.split(";").forEach((c) => {
-          document.cookie = c.replace(/^ +/, "").replace(/=.*/, "=;expires=" + new Date().toUTCString() + ";path=/")
-        })
-      } catch (e) {
-        console.error('Error clearing storage:', e)
-      }
-      
       toast.error(
-        message || 'Authentication error. Your browser cache has been cleared. Please try logging in again.',
+        message || 'PKCE error. Browser cache telah dibersihkan. Silakan coba login lagi.',
         { duration: 6000 }
       )
     } else if (error) {
@@ -78,7 +66,6 @@ function LoginForm() {
       console.log('✅ [Login] Login successful:', data.user?.email)
       toast.success('Login berhasil!')
       
-      // Force reload to clear any cached state
       window.location.href = '/'
     } catch (error: any) {
       console.error('❌ [Login] Login error:', error)
@@ -95,39 +82,74 @@ function LoginForm() {
     }
   }
 
+  const clearStorageAndRetry = () => {
+    try {
+      console.log('🧹 [Login] Clearing storage...')
+      
+      // Clear localStorage
+      localStorage.clear()
+      
+      // Clear sessionStorage
+      sessionStorage.clear()
+      
+      // Clear all cookies
+      document.cookie.split(";").forEach((c) => {
+        document.cookie = c
+          .replace(/^ +/, "")
+          .replace(/=.*/, "=;expires=" + new Date().toUTCString() + ";path=/")
+      })
+      
+      toast.success('Storage dibersihkan! Silakan coba login lagi.')
+      
+      // Reload after a short delay
+      setTimeout(() => {
+        window.location.reload()
+      }, 1000)
+    } catch (e: any) {
+      console.error('Error clearing storage:', e)
+      toast.error('Gagal membersihkan storage')
+    }
+  }
+
   const handleGoogleLogin = async () => {
     try {
       console.log('🔐 [Login] Starting Google OAuth...')
       
-      // Clear any existing session first to prevent PKCE conflicts
+      // Clear any stale auth data first
       await supabase.auth.signOut({ scope: 'local' })
       
-      // CRITICAL: Build absolute URL for callback
+      // Small delay to ensure signout completes
+      await new Promise(resolve => setTimeout(resolve, 500))
+      
       const origin = window.location.origin
       const redirectTo = `${origin}/auth/callback`
       
       console.log('📍 [Login] Origin:', origin)
       console.log('📍 [Login] Redirect URL:', redirectTo)
       
-      const { data, error } = await supabase.auth.signInWithOAuth({
+      const { error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
           redirectTo,
-          // IMPORTANT: skipBrowserRedirect must be false to work with cookies
           skipBrowserRedirect: false,
           queryParams: {
             access_type: 'offline',
-            prompt: 'select_account', // Force account selection
+            prompt: 'select_account',
           },
         },
       })
 
       if (error) {
         console.error('❌ [Login] Google OAuth error:', error)
-        throw error
+        
+        // If PKCE error, clear storage and show message
+        if (error.message?.toLowerCase().includes('pkce')) {
+          toast.error('PKCE error terdeteksi. Membersihkan cache...')
+          clearStorageAndRetry()
+        } else {
+          throw error
+        }
       }
-      
-      console.log('✅ [Login] OAuth initiated:', data)
     } catch (error: any) {
       console.error('❌ [Login] Google login failed:', error)
       toast.error('Login dengan Google gagal: ' + error.message)
@@ -222,6 +244,16 @@ function LoginForm() {
           </svg>
           <span>Google</span>
         </button>
+
+        {/* Troubleshooting Button */}
+        <div className="text-center">
+          <button
+            onClick={clearStorageAndRetry}
+            className="text-sm text-gray-500 hover:text-gray-700 underline"
+          >
+            Mengalami masalah? Bersihkan cache & coba lagi
+          </button>
+        </div>
 
         <p className="text-center text-sm text-gray-600">
           Belum punya akun?{' '}
