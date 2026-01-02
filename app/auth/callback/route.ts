@@ -13,69 +13,11 @@ export async function GET(request: NextRequest) {
     error, 
     error_description,
     origin: requestUrl.origin,
-    fullUrl: request.url,
   })
 
   // Handle OAuth errors
   if (error) {
     console.error('❌ [Callback] OAuth error:', error, error_description)
-    
-    // Handle PKCE specific errors
-    if (error_description?.toLowerCase().includes('pkce') || 
-        error_description?.toLowerCase().includes('code_verifier') ||
-        error_description?.toLowerCase().includes('cache')) {
-      
-      // Return HTML that clears storage and redirects
-      return new NextResponse(
-        `
-        <!DOCTYPE html>
-        <html>
-          <head>
-            <title>Clearing Cache...</title>
-          </head>
-          <body>
-            <div style="display: flex; align-items: center; justify-content: center; min-height: 100vh; font-family: system-ui;">
-              <div style="text-align: center;">
-                <h2>🔄 Membersihkan Cache...</h2>
-                <p>Mohon tunggu sebentar...</p>
-              </div>
-            </div>
-            <script>
-              console.log('Clearing storage...');
-              
-              // Clear localStorage
-              try { localStorage.clear(); } catch(e) {}
-              
-              // Clear sessionStorage
-              try { sessionStorage.clear(); } catch(e) {}
-              
-              // Clear cookies
-              try {
-                document.cookie.split(";").forEach(function(c) { 
-                  document.cookie = c.replace(/^ +/, "").replace(/=.*/, "=;expires=" + new Date().toUTCString() + ";path=/"); 
-                });
-              } catch(e) {}
-              
-              console.log('Storage cleared, redirecting...');
-              
-              // Redirect after clearing
-              setTimeout(function() {
-                window.location.href = '/login?error=pkce_cleared&message=Cache has been cleared. Please try logging in again.';
-              }, 1500);
-            </script>
-          </body>
-        </html>
-        `,
-        {
-          status: 200,
-          headers: {
-            'Content-Type': 'text/html',
-            'Cache-Control': 'no-store, no-cache, must-revalidate',
-          },
-        }
-      )
-    }
-    
     return NextResponse.redirect(
       new URL(`/login?error=${encodeURIComponent(error_description || error)}`, requestUrl.origin)
     )
@@ -90,6 +32,9 @@ export async function GET(request: NextRequest) {
 
   const cookieStore = cookies()
   
+  // Create response that we'll use to set cookies
+  const response = NextResponse.redirect(new URL('/', requestUrl.origin))
+  
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
@@ -100,9 +45,19 @@ export async function GET(request: NextRequest) {
         },
         set(name: string, value: string, options: CookieOptions) {
           try {
+            // Set on both cookieStore and response
             cookieStore.set({ 
               name, 
               value, 
+              ...options,
+              path: '/',
+              secure: process.env.NODE_ENV === 'production',
+              httpOnly: true,
+              sameSite: 'lax',
+            })
+            response.cookies.set({
+              name,
+              value,
               ...options,
               path: '/',
               secure: process.env.NODE_ENV === 'production',
@@ -118,6 +73,13 @@ export async function GET(request: NextRequest) {
             cookieStore.set({ 
               name, 
               value: '', 
+              ...options,
+              maxAge: 0,
+              path: '/',
+            })
+            response.cookies.set({
+              name,
+              value: '',
               ...options,
               maxAge: 0,
               path: '/',
@@ -138,38 +100,79 @@ export async function GET(request: NextRequest) {
     if (sessionError) {
       console.error('❌ [Callback] Session exchange error:', sessionError)
       
-      // Handle PKCE specific errors with storage clearing
+      // If PKCE error, clear everything and redirect with instruction
       if (sessionError.message?.toLowerCase().includes('pkce') || 
           sessionError.message?.toLowerCase().includes('code_verifier')) {
         
-        return new NextResponse(
+        const clearResponse = new NextResponse(
           `
           <!DOCTYPE html>
           <html>
             <head>
               <title>Clearing Cache...</title>
+              <style>
+                body {
+                  font-family: system-ui, -apple-system, sans-serif;
+                  display: flex;
+                  align-items: center;
+                  justify-content: center;
+                  min-height: 100vh;
+                  margin: 0;
+                  background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%);
+                }
+                .container {
+                  text-align: center;
+                  padding: 2rem;
+                  background: white;
+                  border-radius: 1rem;
+                  box-shadow: 0 10px 25px rgba(0,0,0,0.1);
+                  max-width: 400px;
+                }
+                .spinner {
+                  width: 50px;
+                  height: 50px;
+                  margin: 0 auto 1rem;
+                  border: 4px solid #e5e7eb;
+                  border-top-color: #22c55e;
+                  border-radius: 50%;
+                  animation: spin 1s linear infinite;
+                }
+                @keyframes spin {
+                  to { transform: rotate(360deg); }
+                }
+                h2 { color: #166534; margin: 0 0 0.5rem; }
+                p { color: #6b7280; margin: 0; }
+              </style>
             </head>
             <body>
-              <div style="display: flex; align-items: center; justify-content: center; min-height: 100vh; font-family: system-ui;">
-                <div style="text-align: center;">
-                  <h2>🔄 Membersihkan Cache...</h2>
-                  <p>Mohon tunggu sebentar...</p>
-                </div>
+              <div class="container">
+                <div class="spinner"></div>
+                <h2>🔄 Membersihkan Cache...</h2>
+                <p>Mohon tunggu sebentar...</p>
               </div>
               <script>
-                console.log('PKCE error detected, clearing storage...');
+                console.log('PKCE error detected, clearing all storage...');
                 
-                try { localStorage.clear(); } catch(e) {}
-                try { sessionStorage.clear(); } catch(e) {}
+                // Clear localStorage
+                try { localStorage.clear(); } catch(e) { console.error(e); }
+                
+                // Clear sessionStorage
+                try { sessionStorage.clear(); } catch(e) { console.error(e); }
+                
+                // Clear ALL cookies
                 try {
                   document.cookie.split(";").forEach(function(c) { 
-                    document.cookie = c.replace(/^ +/, "").replace(/=.*/, "=;expires=" + new Date().toUTCString() + ";path=/"); 
+                    const name = c.split("=")[0].trim();
+                    document.cookie = name + "=;expires=Thu, 01 Jan 1970 00:00:00 UTC;path=/";
+                    document.cookie = name + "=;expires=Thu, 01 Jan 1970 00:00:00 UTC;path=/;domain=" + window.location.hostname;
                   });
-                } catch(e) {}
+                } catch(e) { console.error(e); }
+                
+                console.log('Storage cleared, redirecting...');
                 
                 setTimeout(function() {
-                  window.location.href = '/login?error=pkce_cleared&message=PKCE error fixed. Cache cleared. Please login again.';
-                }, 1500);
+                  window.location.href = '/login?message=' + encodeURIComponent('Cache berhasil dibersihkan. Silakan coba login kembali.');
+                }, 2000);
               </script>
             </body>
           </html>
@@ -178,10 +181,13 @@ export async function GET(request: NextRequest) {
             status: 200,
             headers: {
               'Content-Type': 'text/html',
-              'Cache-Control': 'no-store, no-cache, must-revalidate',
+              'Cache-Control': 'no-store, no-cache, must-revalidate, private',
+              'Pragma': 'no-cache',
             },
           }
         )
+        
+        return clearResponse
       }
       
       return NextResponse.redirect(
@@ -194,84 +200,74 @@ export async function GET(request: NextRequest) {
     if (!user) {
       console.error('❌ [Callback] No user in response')
       return NextResponse.redirect(
-        new URL('/login?error=Authentication failed - no user data', requestUrl.origin)
+        new URL('/login?error=Authentication failed', requestUrl.origin)
       )
     }
 
     console.log('✅ [Callback] User authenticated:', user.email)
     
-    // Wait for profile with shorter retries
+    // Check/create profile with retries
     let profile = null
     let attempts = 0
-    const maxAttempts = 5
+    const maxAttempts = 3
     
     while (!profile && attempts < maxAttempts) {
       attempts++
       
       if (attempts > 1) {
-        const delay = Math.min(400 * attempts, 2000)
-        console.log(`⏳ [Callback] Waiting ${delay}ms before retry ${attempts}/${maxAttempts}...`)
-        await new Promise(resolve => setTimeout(resolve, delay))
+        await new Promise(resolve => setTimeout(resolve, 1000))
       }
       
       console.log(`🔍 [Callback] Checking profile... attempt ${attempts}/${maxAttempts}`)
       
-      const { data: existingProfile, error: profileError } = await supabase
+      const { data: existingProfile } = await supabase
         .from('profiles')
         .select('*')
         .eq('id', user.id)
         .maybeSingle()
-
-      if (profileError && profileError.code !== 'PGRST116') {
-        console.error('❌ [Callback] Profile check error:', profileError)
-      }
 
       if (existingProfile) {
         profile = existingProfile
         console.log('✅ [Callback] Profile found:', profile.username)
         break
       }
+      
+      // Try to create profile if doesn't exist
+      if (attempts === 1) {
+        console.log('📝 [Callback] Creating profile...')
+        
+        const username = (
+          user.user_metadata?.username || 
+          user.user_metadata?.preferred_username ||
+          user.user_metadata?.name?.toLowerCase().replace(/[^a-z0-9_]/g, '_') ||
+          user.email?.split('@')[0] || 
+          `user_${user.id.substring(0, 8)}`
+        ).toLowerCase().replace(/[^a-z0-9_]/g, '_')
+        
+        const { error: insertError } = await supabase
+          .from('profiles')
+          .insert({
+            id: user.id,
+            username: username,
+            full_name: user.user_metadata?.full_name || user.user_metadata?.name || null,
+            avatar_url: user.user_metadata?.avatar_url || user.user_metadata?.picture || null,
+          })
+
+        if (insertError) {
+          console.error('❌ [Callback] Profile creation error:', insertError)
+        }
+      }
     }
 
-    // Create profile if not found
+    // If still no profile after retries, redirect to debug page
     if (!profile) {
-      console.log('📝 [Callback] Creating profile...')
-      
-      const username = (
-        user.user_metadata?.username || 
-        user.user_metadata?.preferred_username ||
-        user.user_metadata?.name?.toLowerCase().replace(/[^a-z0-9_]/g, '_') ||
-        user.email?.split('@')[0] || 
-        `user_${user.id.substring(0, 8)}`
-      ).toLowerCase().replace(/[^a-z0-9_]/g, '_')
-      
-      const { data: newProfile, error: insertError } = await supabase
-        .from('profiles')
-        .insert({
-          id: user.id,
-          username: username,
-          full_name: user.user_metadata?.full_name || user.user_metadata?.name || null,
-          avatar_url: user.user_metadata?.avatar_url || user.user_metadata?.picture || null,
-        })
-        .select()
-        .single()
-
-      if (insertError) {
-        console.error('❌ [Callback] Profile creation error:', insertError)
-        
-        // If profile creation fails, redirect to debug page
-        return NextResponse.redirect(
-          new URL('/debug?error=profile_creation_failed', requestUrl.origin)
-        )
-      }
-      
-      console.log('✅ [Callback] Profile created:', newProfile)
+      console.warn('⚠️ [Callback] Profile not found after retries, redirecting to debug')
+      return NextResponse.redirect(new URL('/debug', requestUrl.origin))
     }
 
     console.log('🎉 [Callback] Success! Redirecting to home...')
     
-    const response = NextResponse.redirect(new URL('/', requestUrl.origin))
-    
+    // Set cache control headers
     response.headers.set('Cache-Control', 'no-store, no-cache, must-revalidate, private')
     response.headers.set('Pragma', 'no-cache')
     response.headers.set('Expires', '0')
@@ -280,51 +276,6 @@ export async function GET(request: NextRequest) {
     
   } catch (err: any) {
     console.error('❌ [Callback] Unexpected error:', err)
-    
-    // Handle PKCE errors
-    if (err.message?.toLowerCase().includes('pkce') || 
-        err.message?.toLowerCase().includes('code_verifier')) {
-      
-      return new NextResponse(
-        `
-        <!DOCTYPE html>
-        <html>
-          <head>
-            <title>Clearing Cache...</title>
-          </head>
-          <body>
-            <div style="display: flex; align-items: center; justify-content: center; min-height: 100vh; font-family: system-ui;">
-              <div style="text-align: center;">
-                <h2>🔄 Membersihkan Cache...</h2>
-                <p>Mohon tunggu sebentar...</p>
-              </div>
-            </div>
-            <script>
-              console.log('Clearing all storage...');
-              try { localStorage.clear(); } catch(e) {}
-              try { sessionStorage.clear(); } catch(e) {}
-              try {
-                document.cookie.split(";").forEach(function(c) { 
-                  document.cookie = c.replace(/^ +/, "").replace(/=.*/, "=;expires=" + new Date().toUTCString() + ";path=/"); 
-                });
-              } catch(e) {}
-              
-              setTimeout(function() {
-                window.location.href = '/login?error=cache_cleared&message=Cache cleared successfully. Please try again.';
-              }, 1500);
-            </script>
-          </body>
-        </html>
-        `,
-        {
-          status: 200,
-          headers: {
-            'Content-Type': 'text/html',
-            'Cache-Control': 'no-store, no-cache, must-revalidate',
-          },
-        }
-      )
-    }
     
     return NextResponse.redirect(
       new URL(`/login?error=${encodeURIComponent(err.message || 'Unexpected error')}`, requestUrl.origin)
