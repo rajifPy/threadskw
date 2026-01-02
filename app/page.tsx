@@ -15,36 +15,35 @@ export default function HomePage() {
   const router = useRouter()
   const [posts, setPosts] = useState<PostWithProfile[]>([])
   const [loading, setLoading] = useState(true)
-  const [mounted, setMounted] = useState(false)
   const supabase = createClient()
 
-  // Ensure we're client-side
+  // Simplified auth check
   useEffect(() => {
-    setMounted(true)
-  }, [])
+    // Wait for auth to finish loading
+    if (authLoading) return
 
-  // Check auth and redirect
-  useEffect(() => {
-    if (!mounted) return
-    
-    if (authLoading) {
-      console.log('⏳ [HomePage] Waiting for auth...')
+    // No user -> redirect to login
+    if (!user) {
+      router.replace('/login')
       return
     }
 
-    if (!user) {
-      console.log('ℹ️ [HomePage] No user, redirecting to login')
-      router.replace('/login')
-    } else if (user && !profile) {
-      console.warn('⚠️ [HomePage] User exists but profile missing, redirecting to debug')
+    // User exists but no profile -> redirect to debug
+    if (user && !profile) {
+      console.warn('⚠️ [HomePage] Profile missing')
       router.replace('/debug')
-    } else if (user && profile) {
-      console.log('✅ [HomePage] User authenticated:', user.email, profile.username)
+      return
     }
-  }, [mounted, authLoading, user, profile, router])
+
+    // All good, fetch posts
+    if (user && profile) {
+      console.log('✅ [HomePage] Auth complete:', user.email)
+      fetchPosts()
+    }
+  }, [authLoading, user, profile, router])
 
   const fetchPosts = async () => {
-    if (!user || !mounted) return
+    if (!user) return
     
     try {
       setLoading(true)
@@ -93,45 +92,41 @@ export default function HomePage() {
   }
 
   useEffect(() => {
-    if (user && profile && mounted) {
-      console.log('📊 [HomePage] Fetching posts...')
-      fetchPosts()
+    if (!user || !profile) return
 
-      const postsChannel = supabase
-        .channel('posts-changes')
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'posts' }, () => {
-          console.log('🔄 [HomePage] Posts updated')
-          fetchPosts()
-        })
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'likes' }, () => {
-          console.log('🔄 [HomePage] Likes updated')
-          fetchPosts()
-        })
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'comments' }, () => {
-          console.log('🔄 [HomePage] Comments updated')
-          fetchPosts()
-        })
-        .subscribe()
+    console.log('📊 [HomePage] Setting up real-time subscriptions...')
+    
+    const postsChannel = supabase
+      .channel('posts-changes')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'posts' }, () => {
+        fetchPosts()
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'likes' }, () => {
+        fetchPosts()
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'comments' }, () => {
+        fetchPosts()
+      })
+      .subscribe()
 
-      return () => {
-        supabase.removeChannel(postsChannel)
-      }
+    return () => {
+      supabase.removeChannel(postsChannel)
     }
-  }, [user, profile, mounted])
+  }, [user, profile])
 
-  // Show loading while checking auth or not mounted
-  if (!mounted || authLoading) {
+  // Show loading ONLY during auth check
+  if (authLoading) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center bg-primary-50">
         <div className="text-center">
           <div className="animate-spin rounded-full h-16 w-16 border-t-2 border-b-2 border-primary-500 mx-auto mb-4"></div>
-          <p className="text-gray-600 font-medium">Loading...</p>
+          <p className="text-gray-600 font-medium">Memuat...</p>
         </div>
       </div>
     )
   }
 
-  // Don't render content if no user or profile (will redirect)
+  // Don't render if redirecting
   if (!user || !profile) {
     return null
   }
@@ -172,4 +167,5 @@ export default function HomePage() {
     </div>
   )
 }
+
 export const dynamic = 'force-dynamic'
