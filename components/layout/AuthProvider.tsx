@@ -35,13 +35,61 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true)
   const supabase = createClient()
   const mountedRef = useRef(true)
-  const loadingTimeoutRef = useRef<NodeJS.Timeout>()
+  const initStartedRef = useRef(false)
 
-  const fetchProfile = useCallback(async (userId: string): Promise<Profile | null> => {
+  const createProfileIfNeeded = useCallback(async (userId: string, userMetadata: any): Promise<Profile | null> => {
+    try {
+      console.log('📝 [AuthProvider] Creating profile for:', userId)
+      
+      const username = (
+        userMetadata?.username ||
+        userMetadata?.preferred_username ||
+        userMetadata?.name?.toLowerCase().replace(/[^a-z0-9_]/g, '_') ||
+        userMetadata?.email?.split('@')[0] ||
+        `user_${userId.substring(0, 8)}`
+      ).toLowerCase().replace(/[^a-z0-9_]/g, '_').substring(0, 30)
+
+      const { data, error } = await supabase
+        .from('profiles')
+        .insert({
+          id: userId,
+          username: username,
+          full_name: userMetadata?.full_name || userMetadata?.name || null,
+          avatar_url: userMetadata?.avatar_url || userMetadata?.picture || null,
+        })
+        .select()
+        .single()
+
+      if (error) {
+        // If duplicate, try to fetch existing
+        if (error.code === '23505') {
+          console.log('ℹ️ [AuthProvider] Profile already exists, fetching...')
+          const { data: existing } = await supabase
+            .from('profiles')
+            .select('*')
+            .eq('id', userId)
+            .single()
+          return existing
+        }
+        
+        console.error('❌ [AuthProvider] Profile creation error:', error)
+        return null
+      }
+
+      console.log('✅ [AuthProvider] Profile created:', data)
+      return data as Profile
+    } catch (error) {
+      console.error('❌ [AuthProvider] Exception creating profile:', error)
+      return null
+    }
+  }, [supabase])
+
+  const fetchProfile = useCallback(async (userId: string, userMetadata?: any): Promise<Profile | null> => {
     try {
       console.log('🔍 [AuthProvider] Fetching profile for:', userId)
       
-      const { data, error } = await supabase
+      // Try immediate fetch
+      const { data: immediateProfile, error } = await supabase
         .from('profiles')
         .select('*')
         .eq('id', userId)
@@ -49,26 +97,45 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       
       if (error && error.code !== 'PGRST116') {
         console.error('❌ [AuthProvider] Profile fetch error:', error)
-        return null
       }
       
-      if (data) {
-        console.log('✅ [AuthProvider] Profile found:', data.username)
-        return data
+      if (immediateProfile) {
+        console.log('✅ [AuthProvider] Profile found immediately:', immediateProfile.username)
+        return immediateProfile
       }
       
-      console.warn('⚠️ [AuthProvider] Profile not found')
+      // If not found, wait and retry (for trigger to execute)
+      console.log('⏳ [AuthProvider] Profile not found, waiting for trigger...')
+      await new Promise(resolve => setTimeout(resolve, 1500))
+      
+      const { data: delayedProfile } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', userId)
+        .maybeSingle()
+      
+      if (delayedProfile) {
+        console.log('✅ [AuthProvider] Profile found after delay:', delayedProfile.username)
+        return delayedProfile
+      }
+      
+      // Still not found? Create it manually
+      if (userMetadata) {
+        console.log('📝 [AuthProvider] Creating profile manually...')
+        return await createProfileIfNeeded(userId, userMetadata)
+      }
+      
       return null
     } catch (error) {
-      console.error('❌ [AuthProvider] Exception fetching profile:', error)
+      console.error('❌ [AuthProvider] Exception in fetchProfile:', error)
       return null
     }
-  }, [supabase])
+  }, [supabase, createProfileIfNeeded])
 
   const refreshProfile = useCallback(async () => {
     if (user) {
       console.log('🔄 [AuthProvider] Refreshing profile...')
-      const profileData = await fetchProfile(user.id)
+      const profileData = await fetchProfile(user.id, user.user_metadata)
       if (mountedRef.current) {
         setProfile(profileData)
       }
@@ -76,22 +143,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [user, fetchProfile])
 
   useEffect(() => {
+    // Prevent double initialization in Strict Mode
+    if (initStartedRef.current) return
+    initStartedRef.current = true
+
     let mounted = true
     mountedRef.current = true
 
-    // Set loading timeout - stop loading after 8 seconds
-    loadingTimeoutRef.current = setTimeout(() => {
+    console.log('🚀 [AuthProvider] Initializing...')
+
+    // Set timeout to stop loading after 5 seconds
+    const loadingTimeout = setTimeout(() => {
       if (mounted && loading) {
-        console.warn('⏱️ [AuthProvider] Loading timeout reached')
+        console.warn('⏱️ [AuthProvider] Loading timeout')
         setLoading(false)
       }
-    }, 8000)
+    }, 5000)
 
     const initAuth = async () => {
       try {
-        console.log('🚀 [AuthProvider] Initializing auth...')
+        console.log('🔑 [AuthProvider] Getting session from cookies...')
         
-        // Get current session
         const { data: { session }, error } = await supabase.auth.getSession()
         
         if (error) {
@@ -106,8 +178,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           if (mounted) {
             setUser(session.user)
             
-            // Fetch profile
-            const profileData = await fetchProfile(session.user.id)
+            const profileData = await fetchProfile(session.user.id, session.user.user_metadata)
             if (mounted) {
               setProfile(profileData)
               setLoading(false)
@@ -130,17 +201,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         
         if (!mounted) return
 
-        // Clear loading timeout when we get an auth event
-        if (loadingTimeoutRef.current) {
-          clearTimeout(loadingTimeoutRef.current)
-        }
+        clearTimeout(loadingTimeout)
 
-        if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
+        if (event === 'SIGNED_IN') {
           if (session?.user) {
             console.log('✅ [AuthProvider] User signed in:', session.user.email)
             setUser(session.user)
             
-            const profileData = await fetchProfile(session.user.id)
+            const profileData = await fetchProfile(session.user.id, session.user.user_metadata)
             setProfile(profileData)
             setLoading(false)
           }
@@ -149,12 +217,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           setUser(null)
           setProfile(null)
           setLoading(false)
+        } else if (event === 'TOKEN_REFRESHED') {
+          console.log('🔄 [AuthProvider] Token refreshed')
+          if (session?.user) {
+            setUser(session.user)
+          }
         } else if (event === 'INITIAL_SESSION') {
           if (session?.user) {
-            console.log('✅ [AuthProvider] Initial session:', session.user.email)
+            console.log('✅ [AuthProvider] Initial session loaded')
             setUser(session.user)
             
-            const profileData = await fetchProfile(session.user.id)
+            const profileData = await fetchProfile(session.user.id, session.user.user_metadata)
             setProfile(profileData)
           }
           setLoading(false)
@@ -168,9 +241,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => {
       mounted = false
       mountedRef.current = false
-      if (loadingTimeoutRef.current) {
-        clearTimeout(loadingTimeoutRef.current)
-      }
+      clearTimeout(loadingTimeout)
       subscription.unsubscribe()
     }
   }, []) // Run once on mount
@@ -181,6 +252,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       await supabase.auth.signOut()
       setUser(null)
       setProfile(null)
+      
+      // Clear cookies
+      document.cookie.split(';').forEach(cookie => {
+        const name = cookie.split('=')[0].trim()
+        document.cookie = `${name}=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;`
+      })
     } catch (error) {
       console.error('❌ [AuthProvider] Sign out error:', error)
     }
