@@ -8,10 +8,7 @@ export const createClient = () => {
   if (client) return client
 
   // IMPORTANT: Only throw if we're trying to use it during SSR
-  // Allow it to be imported, just don't use it on server
   if (typeof window === 'undefined') {
-    // Return a mock client for SSR that won't be used
-    // This prevents build errors while still protecting against server usage
     return createBrowserClient<Database>(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
@@ -27,6 +24,9 @@ export const createClient = () => {
         autoRefreshToken: true,
         detectSessionInUrl: true,
         persistSession: true,
+        // CRITICAL: Store in cookies only, not localStorage
+        storage: undefined, // This disables localStorage
+        storageKey: undefined,
         debug: false,
       },
       cookies: {
@@ -39,16 +39,19 @@ export const createClient = () => {
         set(name: string, value: string, options: any) {
           let cookie = `${name}=${encodeURIComponent(value)}`
           
+          // IMPORTANT: Set proper cookie attributes for security
           cookie += `; path=${options?.path || '/'}`
-          cookie += `; max-age=${options?.maxAge || 60 * 60 * 24 * 365}`
+          cookie += `; max-age=${options?.maxAge || 60 * 60 * 24 * 365}` // 1 year
           
           if (options?.domain) {
             cookie += `; domain=${options.domain}`
           }
           
+          // SameSite MUST be Lax for OAuth to work
           cookie += `; samesite=${options?.sameSite || 'lax'}`
           
-          if (window.location.protocol === 'https:' || options?.secure) {
+          // Secure in production
+          if (window.location.protocol === 'https:') {
             cookie += '; secure'
           }
           
@@ -76,42 +79,32 @@ export const createClient = () => {
   return client
 }
 
-// Helper to completely reset auth state
+// Helper to clear only auth cookies (not localStorage)
 export const clearAuthStorage = () => {
   if (typeof window === 'undefined') return false
   
   try {
-    console.log('🧹 [Supabase] Clearing auth storage...')
+    console.log('🧹 [Supabase] Clearing auth cookies...')
     
-    // Clear localStorage
-    const keysToRemove = []
-    for (let i = 0; i < localStorage.length; i++) {
-      const key = localStorage.key(i)
-      if (key && (key.includes('supabase') || key.includes('sb-'))) {
-        keysToRemove.push(key)
-      }
-    }
-    keysToRemove.forEach(key => localStorage.removeItem(key))
-    
-    // Clear sessionStorage
-    sessionStorage.clear()
-    
-    // Clear ALL cookies
+    // Only clear cookies, don't touch localStorage
     const cookies = document.cookie.split(';')
     for (let i = 0; i < cookies.length; i++) {
       const cookie = cookies[i]
       const eqPos = cookie.indexOf('=')
       const name = eqPos > -1 ? cookie.substr(0, eqPos).trim() : cookie.trim()
       
-      document.cookie = `${name}=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;`
-      document.cookie = `${name}=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/; domain=${window.location.hostname};`
-      document.cookie = `${name}=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/; domain=.${window.location.hostname};`
+      // Only clear Supabase auth cookies
+      if (name.includes('sb-') || name.includes('supabase')) {
+        document.cookie = `${name}=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;`
+        document.cookie = `${name}=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/; domain=${window.location.hostname};`
+        document.cookie = `${name}=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/; domain=.${window.location.hostname};`
+      }
     }
     
-    console.log('✅ [Supabase] Auth storage cleared')
+    console.log('✅ [Supabase] Auth cookies cleared')
     return true
   } catch (error) {
-    console.error('❌ [Supabase] Error clearing auth storage:', error)
+    console.error('❌ [Supabase] Error clearing auth cookies:', error)
     return false
   }
 }
