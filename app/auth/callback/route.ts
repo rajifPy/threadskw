@@ -13,7 +13,6 @@ export async function GET(request: NextRequest) {
     error, 
     error_description,
     origin: requestUrl.origin,
-    fullUrl: request.url 
   })
 
   // Handle OAuth errors
@@ -25,12 +24,15 @@ export async function GET(request: NextRequest) {
   }
 
   if (!code) {
-    console.log('⚠️ [Callback] No code provided, redirecting to login')
-    return NextResponse.redirect(new URL('/login?error=No authorization code', requestUrl.origin))
+    console.log('⚠️ [Callback] No code provided')
+    return NextResponse.redirect(
+      new URL('/login?error=No authorization code received', requestUrl.origin)
+    )
   }
 
   const cookieStore = cookies()
   
+  // CRITICAL: Create server client with proper cookie handling
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
@@ -41,14 +43,29 @@ export async function GET(request: NextRequest) {
         },
         set(name: string, value: string, options: CookieOptions) {
           try {
-            cookieStore.set({ name, value, ...options })
+            cookieStore.set({ 
+              name, 
+              value, 
+              ...options,
+              // IMPORTANT: Set proper cookie options for production
+              path: '/',
+              secure: process.env.NODE_ENV === 'production',
+              httpOnly: true,
+              sameSite: 'lax',
+            })
           } catch (error) {
             console.error('❌ [Callback] Error setting cookie:', error)
           }
         },
         remove(name: string, options: CookieOptions) {
           try {
-            cookieStore.set({ name, value: '', ...options })
+            cookieStore.set({ 
+              name, 
+              value: '', 
+              ...options,
+              maxAge: 0,
+              path: '/',
+            })
           } catch (error) {
             console.error('❌ [Callback] Error removing cookie:', error)
           }
@@ -60,20 +77,21 @@ export async function GET(request: NextRequest) {
   try {
     console.log('🔄 [Callback] Exchanging code for session...')
     
+    // CRITICAL: Exchange code for session
     const { data, error: sessionError } = await supabase.auth.exchangeCodeForSession(code)
 
     if (sessionError) {
       console.error('❌ [Callback] Session exchange error:', sessionError)
       
-      // Jika PKCE error, redirect ke login dengan instruksi clear cache
-      if (sessionError.message?.includes('PKCE')) {
+      // Handle PKCE specific errors
+      if (sessionError.message?.includes('PKCE') || sessionError.message?.includes('code_verifier')) {
         return NextResponse.redirect(
           new URL('/login?error=pkce_error&message=Please clear your browser cache and try again', requestUrl.origin)
         )
       }
       
       return NextResponse.redirect(
-        new URL(`/login?error=${encodeURIComponent(sessionError.message || 'Authentication failed')}`, requestUrl.origin)
+        new URL(`/login?error=${encodeURIComponent(sessionError.message)}`, requestUrl.origin)
       )
     }
 
@@ -82,27 +100,28 @@ export async function GET(request: NextRequest) {
     if (!user) {
       console.error('❌ [Callback] No user in response')
       return NextResponse.redirect(
-        new URL('/login?error=No user data', requestUrl.origin)
+        new URL('/login?error=Authentication failed - no user data', requestUrl.origin)
       )
     }
 
     console.log('✅ [Callback] User authenticated:', user.email)
     
-    // Wait for profile creation with exponential backoff
+    // Wait for profile creation with retry
     let profile = null
     let attempts = 0
     const maxAttempts = 8
     
     while (!profile && attempts < maxAttempts) {
       attempts++
-      const delay = Math.min(500 * Math.pow(2, attempts - 1), 8000)
       
-      console.log(`🔍 [Callback] Checking profile... attempt ${attempts}/${maxAttempts}`)
-      
-      // Wait before checking (except first attempt)
+      // Wait before checking (exponential backoff)
       if (attempts > 1) {
+        const delay = Math.min(500 * Math.pow(1.5, attempts - 1), 6000)
+        console.log(`⏳ [Callback] Waiting ${delay}ms before retry...`)
         await new Promise(resolve => setTimeout(resolve, delay))
       }
+      
+      console.log(`🔍 [Callback] Checking profile... attempt ${attempts}/${maxAttempts}`)
       
       const { data: existingProfile, error: profileError } = await supabase
         .from('profiles')
@@ -123,7 +142,7 @@ export async function GET(request: NextRequest) {
 
     // If profile still doesn't exist, create it manually
     if (!profile) {
-      console.log('⚠️ [Callback] Profile not found after retries, creating manually...')
+      console.log('📝 [Callback] Profile not found after retries, creating manually...')
       
       const username = (
         user.user_metadata?.username || 
@@ -146,19 +165,17 @@ export async function GET(request: NextRequest) {
 
       if (insertError) {
         console.error('❌ [Callback] Profile creation error:', insertError)
-        // Redirect to debug page instead of error
         return NextResponse.redirect(new URL('/debug', requestUrl.origin))
       }
       
       console.log('✅ [Callback] Profile created successfully:', newProfile)
-      profile = newProfile
     }
 
     console.log('🎉 [Callback] Redirecting to home...')
     
     const response = NextResponse.redirect(new URL('/', requestUrl.origin))
     
-    // Prevent caching
+    // CRITICAL: Set cache headers to prevent stale data
     response.headers.set('Cache-Control', 'no-store, no-cache, must-revalidate, private')
     response.headers.set('Pragma', 'no-cache')
     response.headers.set('Expires', '0')
@@ -171,12 +188,12 @@ export async function GET(request: NextRequest) {
     // Handle PKCE specific errors
     if (err.message?.includes('PKCE') || err.message?.includes('code_verifier')) {
       return NextResponse.redirect(
-        new URL('/login?error=pkce_error&message=Please clear your browser cache and cookies, then try again', requestUrl.origin)
+        new URL('/login?error=pkce_error&message=Please clear browser cache and try again', requestUrl.origin)
       )
     }
     
     return NextResponse.redirect(
-      new URL(`/debug?error=${encodeURIComponent(err.message || 'Unexpected error occurred')}`, requestUrl.origin)
+      new URL(`/debug?error=${encodeURIComponent(err.message || 'Unexpected error')}`, requestUrl.origin)
     )
   }
 }
