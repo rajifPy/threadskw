@@ -17,6 +17,16 @@ export const createClient = () => {
         detectSessionInUrl: true,
         persistSession: true,
         storage: typeof window !== 'undefined' ? window.localStorage : undefined,
+        storageKey: 'supabase.auth.token', // Explicit storage key
+        debug: true, // Enable debug mode
+      },
+      // Add cookie options for better compatibility
+      cookieOptions: {
+        name: 'sb-auth-token',
+        domain: typeof window !== 'undefined' ? window.location.hostname : undefined,
+        path: '/',
+        sameSite: 'lax',
+        secure: typeof window !== 'undefined' ? window.location.protocol === 'https:' : true,
       },
     }
   )
