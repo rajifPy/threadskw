@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
@@ -12,15 +12,43 @@ export default function RegisterPage() {
   const [username, setUsername] = useState('')
   const [fullName, setFullName] = useState('')
   const [loading, setLoading] = useState(false)
+  const [checking, setChecking] = useState(true)
   const router = useRouter()
   const supabase = createClient()
+
+  useEffect(() => {
+    const checkSession = async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession()
+        if (session?.user) {
+          console.log('✅ [Register] Already logged in, redirecting to home...')
+          // Force redirect menggunakan window.location
+          window.location.href = '/'
+          return
+        }
+      } catch (error) {
+        console.error('❌ [Register] Error checking session:', error)
+      } finally {
+        setChecking(false)
+      }
+    }
+    
+    checkSession()
+  }, [supabase])
+
+  if (checking) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary-500"></div>
+      </div>
+    )
+  }
 
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault()
     setLoading(true)
 
     try {
-      // Validate username format
       const usernameRegex = /^[a-z0-9_]+$/
       if (!usernameRegex.test(username)) {
         toast.error('Username hanya boleh huruf kecil, angka, dan underscore')
@@ -28,7 +56,6 @@ export default function RegisterPage() {
         return
       }
 
-      // Check if username already exists
       const { data: existingUser } = await supabase
         .from('profiles')
         .select('username')
@@ -41,14 +68,12 @@ export default function RegisterPage() {
         return
       }
 
-      // Get redirect URL
       const origin = typeof window !== 'undefined' ? window.location.origin : ''
       const redirectTo = `${origin}/auth/callback`
 
       console.log('[Register] Starting registration...')
       console.log('[Register] Redirect URL:', redirectTo)
 
-      // Sign up user
       const { data: authData, error: authError } = await supabase.auth.signUp({
         email,
         password,
@@ -69,25 +94,19 @@ export default function RegisterPage() {
       console.log('[Register] Sign up response:', authData)
 
       if (authData.user) {
-        // Check if email confirmation is required
         if (authData.user.identities && authData.user.identities.length === 0) {
-          // Email already exists
           toast.error('Email sudah terdaftar. Silakan login.')
           setLoading(false)
           return
         }
 
-        // Check if email confirmation is disabled (auto-confirmed)
         const isAutoConfirmed = authData.user.email_confirmed_at !== null
 
         if (isAutoConfirmed) {
-          // Auto-confirmed, create profile and login
           console.log('[Register] Auto-confirmed, creating profile...')
           
-          // Wait a bit for trigger to execute
           await new Promise(resolve => setTimeout(resolve, 2000))
           
-          // Check if profile exists
           const { data: profile } = await supabase
             .from('profiles')
             .select('*')
@@ -95,7 +114,6 @@ export default function RegisterPage() {
             .maybeSingle()
 
           if (!profile) {
-            // Create profile manually
             const { error: insertError } = await supabase
               .from('profiles')
               .insert({
@@ -114,7 +132,6 @@ export default function RegisterPage() {
             window.location.href = '/'
           }, 1000)
         } else {
-          // Email confirmation required
           toast.success(
             'Registrasi berhasil! Cek email Anda untuk verifikasi.',
             { duration: 5000 }
