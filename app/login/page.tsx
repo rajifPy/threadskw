@@ -6,7 +6,6 @@ import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
 import toast from 'react-hot-toast'
 
-// Component yang menggunakan useSearchParams
 function LoginForm() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -16,12 +15,11 @@ function LoginForm() {
   const searchParams = useSearchParams()
   const supabase = createClient()
 
-  // Check if already logged in
   useEffect(() => {
     const checkSession = async () => {
       const { data: { session } } = await supabase.auth.getSession()
       if (session) {
-        console.log('[Login] Already logged in, redirecting...')
+        console.log('✅ [Login] Already logged in, redirecting...')
         router.replace('/')
       } else {
         setChecking(false)
@@ -30,10 +28,28 @@ function LoginForm() {
     checkSession()
   }, [])
 
-  // Show error message if redirected with error
   useEffect(() => {
     const error = searchParams.get('error')
-    if (error) {
+    const message = searchParams.get('message')
+    
+    if (error === 'pkce_error') {
+      // Clear storage untuk fix PKCE error
+      try {
+        localStorage.clear()
+        sessionStorage.clear()
+        // Clear cookies
+        document.cookie.split(";").forEach((c) => {
+          document.cookie = c.replace(/^ +/, "").replace(/=.*/, "=;expires=" + new Date().toUTCString() + ";path=/")
+        })
+      } catch (e) {
+        console.error('Error clearing storage:', e)
+      }
+      
+      toast.error(
+        message || 'Authentication error. Your browser cache has been cleared. Please try logging in again.',
+        { duration: 6000 }
+      )
+    } else if (error) {
       toast.error(decodeURIComponent(error))
     }
   }, [searchParams])
@@ -51,7 +67,7 @@ function LoginForm() {
     setLoading(true)
 
     try {
-      console.log('[Login] Attempting login...')
+      console.log('🔐 [Login] Attempting login...')
       const { data, error } = await supabase.auth.signInWithPassword({
         email,
         password,
@@ -59,13 +75,13 @@ function LoginForm() {
 
       if (error) throw error
 
-      console.log('[Login] Login successful:', data.user?.email)
+      console.log('✅ [Login] Login successful:', data.user?.email)
       toast.success('Login berhasil!')
       
       // Force reload to clear any cached state
       window.location.href = '/'
     } catch (error: any) {
-      console.error('[Login] Login error:', error)
+      console.error('❌ [Login] Login error:', error)
       
       let errorMessage = 'Login gagal'
       if (error.message.includes('Invalid login credentials')) {
@@ -81,11 +97,16 @@ function LoginForm() {
 
   const handleGoogleLogin = async () => {
     try {
-      console.log('[Login] Starting Google OAuth...')
+      console.log('🔐 [Login] Starting Google OAuth...')
+      
+      // Clear any existing session first to prevent PKCE conflicts
+      await supabase.auth.signOut({ scope: 'local' })
+      
       const origin = window.location.origin
       const redirectTo = `${origin}/auth/callback`
       
-      console.log('[Login] Redirect URL:', redirectTo)
+      console.log('📍 [Login] Origin:', origin)
+      console.log('📍 [Login] Redirect URL:', redirectTo)
       
       const { error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
@@ -93,17 +114,17 @@ function LoginForm() {
           redirectTo,
           queryParams: {
             access_type: 'offline',
-            prompt: 'consent',
+            prompt: 'select_account', // Force account selection to avoid cache issues
           },
         },
       })
 
       if (error) {
-        console.error('[Login] Google OAuth error:', error)
+        console.error('❌ [Login] Google OAuth error:', error)
         throw error
       }
     } catch (error: any) {
-      console.error('[Login] Google login failed:', error)
+      console.error('❌ [Login] Google login failed:', error)
       toast.error('Login dengan Google gagal: ' + error.message)
     }
   }
@@ -208,7 +229,6 @@ function LoginForm() {
   )
 }
 
-// Main component dengan Suspense boundary
 export default function LoginPage() {
   return (
     <Suspense fallback={
@@ -221,5 +241,4 @@ export default function LoginPage() {
   )
 }
 
-// CRITICAL: Tambahkan ini untuk mencegah static generation
 export const dynamic = 'force-dynamic'
