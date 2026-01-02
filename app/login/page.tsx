@@ -16,23 +16,37 @@ function LoginForm() {
   const supabase = createClient()
 
   useEffect(() => {
+    let mounted = true
+    
     const checkSession = async () => {
       try {
         const { data: { session } } = await supabase.auth.getSession()
-        if (session?.user) {
-          console.log('✅ [Login] Already logged in, redirecting to home...')
-          // Force redirect menggunakan window.location untuk memastikan
-          window.location.href = '/'
+        
+        if (session?.user && mounted) {
+          console.log('✅ [Login] Already logged in, redirecting...')
+          // Gunakan router.replace untuk client-side navigation
+          router.replace('/')
+          // Jangan set checking ke false, biarkan loading state aktif
           return
+        }
+        
+        // Hanya set checking false jika tidak ada session
+        if (mounted && !session?.user) {
+          setChecking(false)
         }
       } catch (error) {
         console.error('❌ [Login] Error checking session:', error)
-      } finally {
-        setChecking(false)
+        if (mounted) {
+          setChecking(false)
+        }
       }
     }
     
     checkSession()
+    
+    return () => {
+      mounted = false
+    }
   }, [supabase, router])
 
   useEffect(() => {
@@ -78,10 +92,12 @@ function LoginForm() {
       console.log('✅ [Login] Login successful:', data.user?.email)
       toast.success('Login berhasil!')
       
-      // Force redirect
-      setTimeout(() => {
-        window.location.href = '/'
-      }, 500)
+      // Tunggu sebentar untuk toast muncul, lalu redirect
+      await new Promise(resolve => setTimeout(resolve, 500))
+      
+      // Gunakan router.replace untuk navigation yang lebih smooth
+      router.replace('/')
+      
     } catch (error: any) {
       console.error('❌ [Login] Login error:', error)
       
@@ -125,6 +141,7 @@ function LoginForm() {
     try {
       console.log('🔐 [Login] Starting Google OAuth...')
       
+      // Logout terlebih dahulu untuk clear state
       await supabase.auth.signOut({ scope: 'local' })
       await new Promise(resolve => setTimeout(resolve, 500))
       
@@ -189,6 +206,7 @@ function LoginForm() {
                 onChange={(e) => setEmail(e.target.value)}
                 className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none transition"
                 placeholder="nama@email.com"
+                disabled={loading}
               />
             </div>
 
@@ -204,6 +222,7 @@ function LoginForm() {
                 onChange={(e) => setPassword(e.target.value)}
                 className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none transition"
                 placeholder="••••••••"
+                disabled={loading}
               />
             </div>
           </div>
@@ -213,7 +232,7 @@ function LoginForm() {
             disabled={loading}
             className="w-full py-3 px-4 bg-primary-500 text-white rounded-lg font-medium hover:bg-primary-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500 disabled:opacity-50 disabled:cursor-not-allowed transition"
           >
-            {loading ? 'Loading...' : 'Masuk'}
+            {loading ? 'Memproses...' : 'Masuk'}
           </button>
         </form>
 
@@ -228,7 +247,8 @@ function LoginForm() {
 
         <button
           onClick={handleGoogleLogin}
-          className="w-full py-3 px-4 border border-gray-300 rounded-lg font-medium hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500 transition flex items-center justify-center space-x-2"
+          disabled={loading}
+          className="w-full py-3 px-4 border border-gray-300 rounded-lg font-medium hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500 transition flex items-center justify-center space-x-2 disabled:opacity-50 disabled:cursor-not-allowed"
         >
           <svg className="w-5 h-5" viewBox="0 0 24 24">
             <path
@@ -255,6 +275,7 @@ function LoginForm() {
           <button
             onClick={clearStorageAndRetry}
             className="text-sm text-gray-500 hover:text-gray-700 underline"
+            disabled={loading}
           >
             Mengalami masalah? Bersihkan cache & coba lagi
           </button>
