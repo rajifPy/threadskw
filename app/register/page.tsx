@@ -13,16 +13,20 @@ export default function RegisterPage() {
   const [fullName, setFullName] = useState('')
   const [loading, setLoading] = useState(false)
   const [checking, setChecking] = useState(true)
+  const [mounted, setMounted] = useState(false)
   const router = useRouter()
-  const supabase = createClient()
+
+  // Initialize Supabase client only on mount (client-side)
+  const [supabase] = useState(() => createClient())
 
   useEffect(() => {
+    setMounted(true)
+    
     const checkSession = async () => {
       try {
         const { data: { session } } = await supabase.auth.getSession()
         if (session?.user) {
           console.log('✅ [Register] Already logged in, redirecting to home...')
-          // Force redirect menggunakan window.location
           window.location.href = '/'
           return
         }
@@ -36,7 +40,7 @@ export default function RegisterPage() {
     checkSession()
   }, [supabase])
 
-  if (checking) {
+  if (!mounted || checking) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary-500"></div>
@@ -68,7 +72,7 @@ export default function RegisterPage() {
         return
       }
 
-      const origin = typeof window !== 'undefined' ? window.location.origin : ''
+      const origin = window.location.origin
       const redirectTo = `${origin}/auth/callback`
 
       console.log('[Register] Starting registration...')
@@ -163,7 +167,7 @@ export default function RegisterPage() {
   const handleGoogleSignup = async () => {
     try {
       console.log('[Register] Starting Google OAuth...')
-      const origin = typeof window !== 'undefined' ? window.location.origin : ''
+      const origin = window.location.origin
       const redirectTo = `${origin}/auth/callback`
       
       console.log('[Register] Redirect URL:', redirectTo)
@@ -190,7 +194,7 @@ export default function RegisterPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center px-4 py-12">
+    <div className="min-h-screen flex items-center justify-center px-4 py-12 bg-gradient-to-br from-primary-50 to-green-50">
       <div className="max-w-md w-full space-y-8">
         <div className="text-center">
           <div className="flex justify-center mb-4">
