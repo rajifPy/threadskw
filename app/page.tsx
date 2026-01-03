@@ -8,10 +8,10 @@ import { PostWithProfile } from '@/lib/supabase/types'
 import Navbar from '@/components/ui/Navbar'
 import ThreadCard from '@/components/ui/ThreadCard'
 import toast from 'react-hot-toast'
-import dynamic from 'next/dynamic'
+import dynamicImport from 'next/dynamic' // ✅ FIX: Renamed to avoid conflict
 
 // ✅ OPTIMIZATION: Lazy load CreatePost
-const CreatePost = dynamic(() => import('@/components/ui/CreatePost'), {
+const CreatePost = dynamicImport(() => import('@/components/ui/CreatePost'), {
   loading: () => (
     <div className="bg-white rounded-xl shadow-md p-4 mb-6 h-32 animate-pulse">
       <div className="h-4 bg-gray-200 rounded w-3/4 mb-3"></div>
@@ -180,4 +180,5 @@ export default function HomePage() {
   )
 }
 
+// ✅ FIX: No conflict anymore
 export const dynamic = 'force-dynamic'
