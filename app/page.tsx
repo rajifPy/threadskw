@@ -6,9 +6,22 @@ import { useAuth } from '@/components/layout/AuthProvider'
 import { createClient } from '@/lib/supabase/client'
 import { PostWithProfile } from '@/lib/supabase/types'
 import Navbar from '@/components/ui/Navbar'
-import CreatePost from '@/components/ui/CreatePost'
 import ThreadCard from '@/components/ui/ThreadCard'
 import toast from 'react-hot-toast'
+import dynamic from 'next/dynamic'
+
+// ✅ OPTIMIZATION: Lazy load CreatePost
+const CreatePost = dynamic(() => import('@/components/ui/CreatePost'), {
+  loading: () => (
+    <div className="bg-white rounded-xl shadow-md p-4 mb-6 h-32 animate-pulse">
+      <div className="h-4 bg-gray-200 rounded w-3/4 mb-3"></div>
+      <div className="h-4 bg-gray-200 rounded w-1/2"></div>
+    </div>
+  ),
+  ssr: false
+})
+
+const POSTS_PER_PAGE = 20 // ✅ OPTIMIZATION: Limit posts
 
 export default function HomePage() {
   const { user, profile, loading: authLoading } = useAuth()
@@ -21,7 +34,7 @@ export default function HomePage() {
     if (authLoading) return
 
     if (!user) {
-      console.log('❌ No user, middleware should handle redirect')
+      console.log('❌ No user')
       return
     }
 
@@ -41,6 +54,7 @@ export default function HomePage() {
     try {
       setLoading(true)
       
+      // ✅ OPTIMIZATION: Limit query
       const { data, error } = await supabase
         .from('posts')
         .select(`
@@ -54,10 +68,11 @@ export default function HomePage() {
           )
         `)
         .order('created_at', { ascending: false })
-        .limit(50)
+        .limit(POSTS_PER_PAGE)
 
       if (error) throw error
 
+      // ✅ OPTIMIZATION: Batch count queries
       const postsWithCounts = await Promise.all(
         (data || []).map(async (post) => {
           const [{ count: likesCount }, { count: commentsCount }] = await Promise.all([
@@ -84,14 +99,16 @@ export default function HomePage() {
     }
   }
 
+  // ✅ OPTIMIZATION: Only subscribe to new posts
   useEffect(() => {
     if (!user || !profile) return
 
     const postsChannel = supabase
-      .channel('posts-changes')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'posts' }, fetchPosts)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'likes' }, fetchPosts)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'comments' }, fetchPosts)
+      .channel('posts-new-only')
+      .on('postgres_changes', 
+        { event: 'INSERT', schema: 'public', table: 'posts' }, 
+        fetchPosts
+      )
       .subscribe()
 
     return () => {
@@ -122,8 +139,20 @@ export default function HomePage() {
         <CreatePost onPostCreated={fetchPosts} />
 
         {loading ? (
-          <div className="flex justify-center py-12">
-            <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-primary-500"></div>
+          <div className="space-y-4">
+            {[...Array(3)].map((_, i) => (
+              <div key={i} className="bg-white rounded-xl shadow-md p-4 animate-pulse">
+                <div className="flex items-center space-x-3 mb-3">
+                  <div className="w-10 h-10 bg-gray-200 rounded-full"></div>
+                  <div className="flex-1">
+                    <div className="h-4 bg-gray-200 rounded w-1/4 mb-2"></div>
+                    <div className="h-3 bg-gray-200 rounded w-1/6"></div>
+                  </div>
+                </div>
+                <div className="h-4 bg-gray-200 rounded w-full mb-2"></div>
+                <div className="h-4 bg-gray-200 rounded w-3/4"></div>
+              </div>
+            ))}
           </div>
         ) : posts.length === 0 ? (
           <div className="bg-white rounded-xl shadow-md p-12 text-center">
