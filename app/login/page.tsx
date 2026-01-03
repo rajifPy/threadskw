@@ -11,10 +11,15 @@ function LoginForm() {
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
   const [googleLoading, setGoogleLoading] = useState(false)
+  const [mounted, setMounted] = useState(false)
   const searchParams = useSearchParams()
-  const supabase = createClient()
+  
+  // Initialize Supabase client only on mount (client-side)
+  const [supabase] = useState(() => createClient())
 
   useEffect(() => {
+    setMounted(true)
+    
     const error = searchParams.get('error')
     const message = searchParams.get('message')
     
@@ -24,6 +29,14 @@ function LoginForm() {
       toast.error(decodeURIComponent(error), { duration: 5000 })
     }
   }, [searchParams])
+
+  if (!mounted) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary-50 to-green-50">
+        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary-500"></div>
+      </div>
+    )
+  }
 
   const handleEmailLogin = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -108,22 +121,15 @@ function LoginForm() {
     }
   }
 
-  const clearAuthCookies = () => {
+  const clearCacheAndReload = async () => {
     try {
-      console.log('🧹 [Clear] Clearing auth cookies...')
+      console.log('🧹 [Clear] Clearing session...')
       
-      // Only clear Supabase auth cookies
-      const cookies = document.cookie.split(';')
-      cookies.forEach(cookie => {
-        const name = cookie.split('=')[0].trim()
-        if (name.includes('sb-') || name.includes('supabase')) {
-          document.cookie = `${name}=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;`
-          document.cookie = `${name}=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/; domain=${window.location.hostname};`
-        }
-      })
+      // Only sign out from Supabase (cookies only)
+      await supabase.auth.signOut()
       
       toast.success('Cache berhasil dibersihkan!')
-      console.log('✅ [Clear] Auth cookies cleared')
+      console.log('✅ [Clear] Session cleared')
       
       setTimeout(() => window.location.reload(), 1000)
     } catch (e) {
@@ -237,10 +243,10 @@ function LoginForm() {
             )}
           </button>
 
-          {/* Troubleshooting - Only clear cookies, NO localStorage */}
+          {/* Troubleshooting */}
           <div className="mt-6 text-center">
             <button
-              onClick={clearAuthCookies}
+              onClick={clearCacheAndReload}
               className="text-sm text-gray-500 hover:text-primary-600 underline transition-colors"
               disabled={loading || googleLoading}
             >
@@ -257,10 +263,10 @@ function LoginForm() {
           </p>
         </div>
 
-        {/* Note about Cookie-based Auth */}
+        {/* Note */}
         <div className="mt-6 text-center">
           <p className="text-xs text-gray-400">
-            🔐 Menggunakan cookie-based authentication
+            🔐 Menggunakan cookie-based authentication (No localStorage)
           </p>
         </div>
       </div>
