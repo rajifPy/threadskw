@@ -97,13 +97,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     const initAuth = async () => {
       try {
-        console.log('🔐 [Auth] Initializing auth...')
+        console.log('🔐 [Auth] Initializing...')
         
-        // CRITICAL: Use getUser() to validate session with server
-        const { data: { user: currentUser }, error } = await supabase.auth.getUser()
+        // Get session from cookies (Supabase SSR handles this)
+        const { data: { session }, error: sessionError } = await supabase.auth.getSession()
         
-        if (error) {
-          console.error('❌ [Auth] Auth error:', error)
+        if (sessionError) {
+          console.error('❌ [Auth] Session error:', sessionError)
+          
+          // If session error, clear everything
+          await supabase.auth.signOut()
+          
           if (mounted) {
             setUser(null)
             setProfile(null)
@@ -112,16 +116,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           return
         }
 
-        if (currentUser && mounted) {
-          console.log('✅ [Auth] User authenticated:', currentUser.email)
-          setUser(currentUser)
+        if (session?.user) {
+          console.log('✅ [Auth] Session found:', session.user.email)
           
-          const profileData = await fetchProfile(currentUser.id, currentUser.user_metadata)
           if (mounted) {
+            setUser(session.user)
+            const profileData = await fetchProfile(session.user.id, session.user.user_metadata)
             setProfile(profileData)
           }
         } else {
-          console.log('ℹ️ [Auth] No user session')
+          console.log('ℹ️ [Auth] No session')
         }
         
         if (mounted) {
@@ -140,7 +144,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // Subscribe to auth state changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
-        console.log('🔄 [Auth] Auth event:', event)
+        console.log('🔄 [Auth] Event:', event)
         
         if (!mounted) return
 
@@ -177,20 +181,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       console.log('👋 [Auth] Signing out...')
       
-      // Sign out from Supabase (this will clear cookies)
+      // Supabase will clear cookies automatically
       await supabase.auth.signOut()
       
       setUser(null)
       setProfile(null)
-      
-      // Clear only Supabase auth cookies
-      const cookies = document.cookie.split(';')
-      cookies.forEach(cookie => {
-        const name = cookie.split('=')[0].trim()
-        if (name.includes('sb-') || name.includes('supabase')) {
-          document.cookie = `${name}=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;`
-        }
-      })
       
       console.log('✅ [Auth] Sign out complete')
     } catch (error) {
