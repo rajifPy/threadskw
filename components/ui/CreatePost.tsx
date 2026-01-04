@@ -174,10 +174,10 @@ export default function CreatePost({
 
         if (error) throw error
         
-        // ✅ Ensure minimum 5 seconds delay
+        // ✅ Ensure minimum 8 seconds delay (sesuai durasi sound volvo)
         const elapsed = Date.now() - startTime
-        if (elapsed < 5000) {
-          await new Promise(resolve => setTimeout(resolve, 5000 - elapsed))
+        if (elapsed < 8000) {
+          await new Promise(resolve => setTimeout(resolve, 8000 - elapsed))
         }
         
         playSuccessSound() // ✅ TAMBAHAN: Play success sound setelah berhasil
@@ -193,10 +193,10 @@ export default function CreatePost({
 
         if (error) throw error
         
-        // ✅ Ensure minimum 5 seconds delay
+        // ✅ Ensure minimum 8 seconds delay (sesuai durasi sound volvo)
         const elapsed = Date.now() - startTime
-        if (elapsed < 5000) {
-          await new Promise(resolve => setTimeout(resolve, 5000 - elapsed))
+        if (elapsed < 8000) {
+          await new Promise(resolve => setTimeout(resolve, 8000 - elapsed))
         }
         
         playSuccessSound() // ✅ TAMBAHAN: Play success sound setelah berhasil
@@ -335,7 +335,7 @@ export default function CreatePost({
               .progress-bar-fill {
                 height: 100%;
                 background: linear-gradient(90deg, #22c55e, #16a34a);
-                animation: progress 5s linear;
+                animation: progress 8s linear;
               }
 
               @keyframes progress {
