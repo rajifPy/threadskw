@@ -80,7 +80,6 @@ export default function PostDetailPage() {
       
       setLikesCount(likesCount || 0)
       
-      // Check if user liked this post
       if (user) {
         const { data: likeData } = await supabase
           .from('likes')
@@ -225,7 +224,7 @@ export default function PostDetailPage() {
 
   if (authLoading || loading || !user) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary-50 to-green-50 dark:from-gray-900 dark:to-slate-900">
         <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary-500"></div>
       </div>
     )
@@ -236,13 +235,13 @@ export default function PostDetailPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-primary-50 to-green-50">
+    <div className="min-h-screen bg-gradient-to-br from-primary-50 to-green-50 dark:from-gray-900 dark:to-slate-900 transition-colors duration-300">
       <Navbar />
       
       <main className="max-w-2xl mx-auto px-4 py-6">
         <button
           onClick={() => router.back()}
-          className="flex items-center space-x-2 text-gray-600 hover:text-gray-900 mb-4 transition-colors"
+          className="flex items-center space-x-2 text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200 mb-4 transition-colors"
         >
           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
@@ -251,7 +250,7 @@ export default function PostDetailPage() {
         </button>
 
         {/* Main Post */}
-        <div className="bg-white rounded-xl shadow-md p-6 mb-6">
+        <div className="bg-white dark:bg-gray-800 rounded-xl shadow-md p-6 mb-6 transition-colors duration-300">
           <div className="flex items-start space-x-3">
             <Link href={`/profile/${post.profiles.username}`}>
               <div className="relative w-12 h-12 rounded-full overflow-hidden flex-shrink-0">
@@ -266,11 +265,11 @@ export default function PostDetailPage() {
 
             <div className="flex-1">
               <Link href={`/profile/${post.profiles.username}`} className="flex items-center space-x-2 mb-1">
-                <span className="font-bold text-gray-900">{post.profiles.full_name || post.profiles.username}</span>
-                <span className="text-gray-500">@{post.profiles.username}</span>
+                <span className="font-bold text-gray-900 dark:text-white">{post.profiles.full_name || post.profiles.username}</span>
+                <span className="text-gray-500 dark:text-gray-400">@{post.profiles.username}</span>
               </Link>
 
-              <p className="text-gray-800 mb-3 whitespace-pre-wrap">{post.content}</p>
+              <p className="text-gray-800 dark:text-gray-100 mb-3 whitespace-pre-wrap">{post.content}</p>
 
               {post.image_url && (
                 <div className="relative w-full rounded-lg overflow-hidden mb-3">
@@ -284,15 +283,15 @@ export default function PostDetailPage() {
                 </div>
               )}
 
-              <div className="flex items-center space-x-1 text-sm text-gray-500 mb-4">
+              <div className="flex items-center space-x-1 text-sm text-gray-500 dark:text-gray-400 mb-4">
                 <span>{getRelativeTime(post.created_at)}</span>
               </div>
 
-              <div className="flex items-center space-x-6 pt-4 border-t border-gray-100">
+              <div className="flex items-center space-x-6 pt-4 border-t border-gray-100 dark:border-gray-700">
                 <button
                   onClick={handleLike}
                   className={`flex items-center space-x-2 transition-all ${
-                    isLiked ? 'text-red-500' : 'text-gray-500 hover:text-red-500'
+                    isLiked ? 'text-red-500' : 'text-gray-500 dark:text-gray-400 hover:text-red-500'
                   }`}
                 >
                   <svg className={`w-5 h-5 ${isLiked ? 'fill-current' : ''}`} fill={isLiked ? 'currentColor' : 'none'} stroke="currentColor" viewBox="0 0 24 24">
@@ -301,7 +300,7 @@ export default function PostDetailPage() {
                   <span className="text-sm font-medium">{likesCount}</span>
                 </button>
 
-                <div className="flex items-center space-x-2 text-gray-500">
+                <div className="flex items-center space-x-2 text-gray-500 dark:text-gray-400">
                   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
                   </svg>
@@ -313,18 +312,18 @@ export default function PostDetailPage() {
         </div>
 
         {/* Comment Form */}
-        <div className="bg-white rounded-xl shadow-md p-4 mb-6">
+        <div className="bg-white dark:bg-gray-800 rounded-xl shadow-md p-4 mb-6 transition-colors duration-300">
           <form onSubmit={handleSubmitComment}>
             <textarea
               value={newComment}
               onChange={(e) => setNewComment(e.target.value)}
               placeholder="Tulis komentar..."
-              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none resize-none"
+              className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none resize-none"
               rows={3}
               maxLength={300}
             />
             <div className="flex items-center justify-between mt-2">
-              <span className={`text-sm ${newComment.length > 250 ? 'text-red-500' : 'text-gray-400'}`}>
+              <span className={`text-sm ${newComment.length > 250 ? 'text-red-500' : 'text-gray-400 dark:text-gray-500'}`}>
                 {newComment.length}/300
               </span>
               <button
@@ -338,26 +337,26 @@ export default function PostDetailPage() {
           </form>
         </div>
 
-        {/* Comments with Thread Line */}
-        <div className="bg-white rounded-xl shadow-md p-6">
-          <h3 className="font-bold text-gray-900 mb-4">
+        {/* Comments */}
+        <div className="bg-white dark:bg-gray-800 rounded-xl shadow-md p-6 transition-colors duration-300">
+          <h3 className="font-bold text-gray-900 dark:text-white mb-4">
             Komentar ({comments.length})
           </h3>
 
           {comments.length === 0 ? (
-            <p className="text-center text-gray-500 py-8">Belum ada komentar</p>
+            <p className="text-center text-gray-500 dark:text-gray-400 py-8">Belum ada komentar</p>
           ) : (
             <div className="space-y-0">
               {comments.map((comment, index) => (
                 <div key={comment.id} className="relative flex items-start space-x-3 pb-6">
-                  {/* Thread Line - Garis Vertikal LEBIH TEBAL */}
+                  {/* Thread Line */}
                   {index < comments.length - 1 && (
-                    <div className="absolute left-[19px] top-[52px] bottom-0 w-[2px] bg-gray-300"></div>
+                    <div className="absolute left-[19px] top-[52px] bottom-0 w-[2px] bg-gray-300 dark:bg-gray-600"></div>
                   )}
 
-                  {/* Avatar dengan border putih */}
+                  {/* Avatar */}
                   <Link href={`/profile/${comment.profiles.username}`}>
-                    <div className="relative w-10 h-10 rounded-full overflow-hidden flex-shrink-0 z-10 ring-4 ring-white">
+                    <div className="relative w-10 h-10 rounded-full overflow-hidden flex-shrink-0 z-10 ring-4 ring-white dark:ring-gray-800">
                       <Image
                         src={comment.profiles.avatar_url || generateAvatarUrl(comment.profiles.username)}
                         alt={comment.profiles.username}
@@ -371,20 +370,20 @@ export default function PostDetailPage() {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between mb-1">
                       <Link href={`/profile/${comment.profiles.username}`} className="flex items-center space-x-2">
-                        <span className="font-semibold text-gray-900 text-sm">
+                        <span className="font-semibold text-gray-900 dark:text-white text-sm">
                           {comment.profiles.full_name || comment.profiles.username}
                         </span>
-                        <span className="text-gray-500 text-sm">@{comment.profiles.username}</span>
+                        <span className="text-gray-500 dark:text-gray-400 text-sm">@{comment.profiles.username}</span>
                       </Link>
-                      <span className="text-xs text-gray-400">{getRelativeTime(comment.created_at)}</span>
+                      <span className="text-xs text-gray-400 dark:text-gray-500">{getRelativeTime(comment.created_at)}</span>
                     </div>
 
-                    <p className="text-gray-800 text-sm whitespace-pre-wrap mb-2">{comment.content}</p>
+                    <p className="text-gray-800 dark:text-gray-100 text-sm whitespace-pre-wrap mb-2">{comment.content}</p>
 
                     {user?.id === comment.user_id && (
                       <button
                         onClick={() => handleDeleteComment(comment.id)}
-                        className="text-xs text-red-500 hover:text-red-600 transition-colors"
+                        className="text-xs text-red-500 dark:text-red-400 hover:text-red-600 dark:hover:text-red-300 transition-colors"
                       >
                         Hapus
                       </button>
