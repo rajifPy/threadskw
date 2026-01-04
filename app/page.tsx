@@ -1,412 +1,315 @@
 'use client'
 
-import { useEffect, useState, useRef } from 'react'
-import { useParams, useRouter } from 'next/navigation'
-import Image from 'next/image'
+import { useState, useEffect, Suspense } from 'react'
+import { useSearchParams, useRouter } from 'next/navigation'
+import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
-import { useAuth } from '@/components/layout/AuthProvider'
-import { Profile, PostWithProfile } from '@/lib/supabase/types'
-import Navbar from '@/components/ui/Navbar'
-import ThreadCard from '@/components/ui/ThreadCard'
-import { generateAvatarUrl } from '@/utils/helpers'
 import toast from 'react-hot-toast'
 
-export default function ProfilePage() {
-  const params = useParams()
+function LoginForm() {
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [googleLoading, setGoogleLoading] = useState(false)
+  const [mounted, setMounted] = useState(false)
+  const [checking, setChecking] = useState(true)
+  const searchParams = useSearchParams()
   const router = useRouter()
-  const { user, profile: currentUserProfile, loading: authLoading, refreshProfile } = useAuth()
-  const [profile, setProfile] = useState<Profile | null>(null)
-  const [posts, setPosts] = useState<PostWithProfile[]>([])
-  const [loading, setLoading] = useState(true)
-  const [isEditing, setIsEditing] = useState(false)
-  const [uploading, setUploading] = useState(false)
-  const [editForm, setEditForm] = useState({
-    full_name: '',
-    bio: '',
-  })
-  const [avatarFile, setAvatarFile] = useState<File | null>(null)
-  const [avatarPreview, setAvatarPreview] = useState<string>('')
-  const fileInputRef = useRef<HTMLInputElement>(null)
-  const supabase = createClient()
-
-  const username = params.username as string
-  const isOwnProfile = currentUserProfile?.username === username
+  
+  const [supabase] = useState(() => createClient())
 
   useEffect(() => {
-    if (!authLoading && !user) {
-      router.push('/login')
-    }
-  }, [user, authLoading, router])
-
-  const fetchProfile = async () => {
-    try {
-      const { data: profileData, error: profileError } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('username', username)
-        .single()
-
-      if (profileError) throw profileError
-
-      setProfile(profileData)
-      setEditForm({
-        full_name: profileData.full_name || '',
-        bio: profileData.bio || '',
-      })
-      setAvatarPreview(profileData.avatar_url || '')
-    } catch (error) {
-      console.error('Error fetching profile:', error)
-      toast.error('Profil tidak ditemukan')
-      router.push('/')
-    }
-  }
-
-  const fetchUserPosts = async () => {
-    try {
-      const { data: profileData } = await supabase
-        .from('profiles')
-        .select('id')
-        .eq('username', username)
-        .single()
-
-      if (!profileData) return
-
-      const { data: postsData, error: postsError } = await supabase
-        .from('posts')
-        .select(`
-          *,
-          profiles (
-            id,
-            username,
-            full_name,
-            avatar_url,
-            bio
-          )
-        `)
-        .eq('user_id', profileData.id)
-        .order('created_at', { ascending: false })
-
-      if (postsError) throw postsError
-
-      const postsWithCounts = await Promise.all(
-        (postsData || []).map(async (post) => {
-          const [{ count: likesCount }, { count: commentsCount }] = await Promise.all([
-            supabase.from('likes').select('*', { count: 'exact', head: true }).eq('post_id', post.id),
-            supabase.from('comments').select('*', { count: 'exact', head: true }).eq('post_id', post.id),
-          ])
-
-          return {
-            ...post,
-            _count: {
-              likes: likesCount || 0,
-              comments: commentsCount || 0,
-            },
-          } as PostWithProfile
-        })
-      )
-
-      setPosts(postsWithCounts)
-    } catch (error) {
-      console.error('Error fetching posts:', error)
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  useEffect(() => {
-    if (user && username) {
-      fetchProfile()
-      fetchUserPosts()
-    }
-  }, [user, username])
-
-  // ✅ Handle avatar file selection
-  const handleAvatarChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (file) {
-      // Validate file size (max 2MB)
-      if (file.size > 2 * 1024 * 1024) {
-        toast.error('Ukuran gambar maksimal 2MB')
-        return
-      }
-
-      // Validate file type
-      if (!file.type.startsWith('image/')) {
-        toast.error('File harus berupa gambar')
-        return
-      }
-
-      setAvatarFile(file)
-      setAvatarPreview(URL.createObjectURL(file))
-    }
-  }
-
-  // ✅ Upload avatar to Supabase Storage
-  const uploadAvatar = async (file: File): Promise<string | null> => {
-    try {
-      const fileExt = file.name.split('.').pop()
-      const fileName = `${user!.id}-avatar-${Date.now()}.${fileExt}`
-      const filePath = `avatars/${fileName}`
-
-      // Delete old avatar if exists
-      if (profile?.avatar_url && profile.avatar_url.includes('supabase')) {
-        const oldPath = profile.avatar_url.split('/').pop()
-        if (oldPath) {
-          await supabase.storage.from('post-images').remove([`avatars/${oldPath}`])
-        }
-      }
-
-      // Upload new avatar
-      const { error: uploadError } = await supabase.storage
-        .from('post-images')
-        .upload(filePath, file, {
-          cacheControl: '3600',
-          upsert: false
-        })
-
-      if (uploadError) throw uploadError
-
-      const { data: { publicUrl } } = supabase.storage
-        .from('post-images')
-        .getPublicUrl(filePath)
-
-      return publicUrl
-    } catch (error) {
-      console.error('Error uploading avatar:', error)
-      return null
-    }
-  }
-
-  const handleUpdateProfile = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setUploading(true)
-
-    try {
-      let avatarUrl = profile?.avatar_url || null
-
-      // ✅ Upload avatar jika ada file baru
-      if (avatarFile) {
-        const uploadedUrl = await uploadAvatar(avatarFile)
-        if (uploadedUrl) {
-          avatarUrl = uploadedUrl
-        } else {
-          toast.error('Gagal upload avatar')
-          setUploading(false)
+    setMounted(true)
+    
+    // ✅ Check if already logged in
+    const checkAuth = async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession()
+        if (session?.user) {
+          console.log('✅ [Login] Already logged in, redirecting to home')
+          router.replace('/')
           return
         }
+      } catch (error) {
+        console.error('❌ [Login] Error checking session:', error)
+      } finally {
+        setChecking(false)
       }
-
-      const { error } = await supabase
-        .from('profiles')
-        .update({
-          full_name: editForm.full_name,
-          bio: editForm.bio,
-          avatar_url: avatarUrl,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', user!.id)
-
-      if (error) throw error
-
-      toast.success('Profil berhasil diupdate')
-      setIsEditing(false)
-      setAvatarFile(null)
-      
-      // ✅ Refresh profile di context untuk update navbar
-      await refreshProfile()
-      await fetchProfile()
-      
-    } catch (error) {
-      console.error('Error updating profile:', error)
-      toast.error('Gagal update profil')
-    } finally {
-      setUploading(false)
     }
-  }
+    
+    checkAuth()
+    
+    const error = searchParams.get('error')
+    const message = searchParams.get('message')
+    
+    if (message) {
+      toast.success(decodeURIComponent(message), { duration: 5000 })
+    } else if (error) {
+      toast.error(decodeURIComponent(error), { duration: 5000 })
+    }
+  }, [searchParams, supabase, router])
 
-  const handleCancelEdit = () => {
-    setIsEditing(false)
-    setAvatarFile(null)
-    setAvatarPreview(profile?.avatar_url || '')
-    setEditForm({
-      full_name: profile?.full_name || '',
-      bio: profile?.bio || '',
-    })
-  }
-
-  if (authLoading || loading || !user) {
+  if (!mounted || checking) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary-50 to-green-50">
         <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary-500"></div>
       </div>
     )
   }
 
-  if (!profile) {
-    return null
+  const handleEmailLogin = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setLoading(true)
+
+    try {
+      console.log('🔐 [Login] Starting email login...')
+      
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      })
+
+      if (error) throw error
+
+      console.log('✅ [Login] Login successful:', data.user?.email)
+      toast.success('Login berhasil!')
+      
+      // ✅ Wait for auth state to propagate
+      await new Promise(resolve => setTimeout(resolve, 1000))
+      
+      // ✅ Force navigation using window.location
+      console.log('🔄 [Login] Redirecting to home...')
+      window.location.href = '/'
+      
+    } catch (error: any) {
+      console.error('❌ [Login] Error:', error)
+      
+      let errorMessage = 'Login gagal'
+      if (error.message.includes('Invalid login credentials')) {
+        errorMessage = 'Email atau password salah'
+      } else if (error.message.includes('Email not confirmed')) {
+        errorMessage = 'Email belum diverifikasi'
+      }
+      
+      toast.error(errorMessage)
+      setLoading(false)
+    }
+  }
+
+  const handleGoogleLogin = async () => {
+    setGoogleLoading(true)
+    
+    try {
+      console.log('🔐 [Google Login] Starting...')
+      
+      // ✅ Clear existing session first
+      try {
+        await supabase.auth.signOut({ scope: 'local' })
+        console.log('✅ [Google Login] Cleared existing session')
+      } catch (e) {
+        console.log('ℹ️ [Google Login] No existing session')
+      }
+      
+      await new Promise(resolve => setTimeout(resolve, 300))
+      
+      const origin = window.location.origin
+      const redirectTo = `${origin}/auth/callback`
+      
+      console.log('🌐 [Google Login] Origin:', origin)
+      console.log('↩️ [Google Login] Redirect URL:', redirectTo)
+      
+      const { data, error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo,
+          skipBrowserRedirect: false,
+          queryParams: {
+            access_type: 'offline',
+            prompt: 'select_account',
+          },
+        },
+      })
+
+      if (error) {
+        console.error('❌ [Google Login] Error:', error)
+        throw error
+      }
+      
+      console.log('✅ [Google Login] Redirect initiated')
+      
+      // ✅ OAuth will handle redirect, don't set loading to false
+      
+    } catch (error: any) {
+      console.error('❌ [Google Login] Failed:', error)
+      toast.error('Login dengan Google gagal. Silakan coba lagi.')
+      setGoogleLoading(false)
+    }
+  }
+
+  const clearCacheAndReload = async () => {
+    try {
+      console.log('🧹 [Clear] Clearing session...')
+      
+      await supabase.auth.signOut()
+      
+      toast.success('Cache berhasil dibersihkan!')
+      console.log('✅ [Clear] Session cleared')
+      
+      setTimeout(() => window.location.reload(), 1000)
+    } catch (e) {
+      console.error('❌ [Clear] Error:', e)
+      toast.error('Gagal membersihkan cache')
+    }
   }
 
   return (
-    <div className="min-h-screen">
-      <Navbar />
-      
-      <main className="max-w-2xl mx-auto px-4 py-6">
-        <div className="bg-white rounded-xl shadow-md p-6 mb-6">
-          <div className="flex items-start justify-between mb-4">
-            <div className="flex items-center space-x-4">
-              <div className="relative">
-                <div className="relative w-20 h-20 rounded-full overflow-hidden">
-                  <Image
-                    src={avatarPreview || profile.avatar_url || generateAvatarUrl(profile.username)}
-                    alt={profile.username}
-                    fill
-                    className="object-cover"
-                  />
-                </div>
-                
-                {/* ✅ Upload button overlay saat edit mode */}
-                {isEditing && (
-                  <button
-                    type="button"
-                    onClick={() => fileInputRef.current?.click()}
-                    className="absolute inset-0 bg-black bg-opacity-50 rounded-full flex items-center justify-center text-white hover:bg-opacity-70 transition-all"
-                  >
-                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
-                    </svg>
-                  </button>
-                )}
-                
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept="image/*"
-                  onChange={handleAvatarChange}
-                  className="hidden"
-                />
-              </div>
-              
-              <div>
-                <h1 className="text-2xl font-bold text-gray-900">
-                  {profile.full_name || profile.username}
-                </h1>
-                <p className="text-gray-500">@{profile.username}</p>
+    <div className="min-h-screen flex items-center justify-center px-4 bg-gradient-to-br from-primary-50 to-green-50">
+      <div className="max-w-md w-full">
+        <div className="bg-white rounded-2xl shadow-xl p-8">
+          {/* Header */}
+          <div className="text-center mb-8">
+            <div className="flex justify-center mb-4">
+              <div className="w-16 h-16 bg-gradient-to-br from-primary-500 to-green-600 rounded-full flex items-center justify-center shadow-lg">
+                <span className="text-white font-bold text-3xl">A</span>
               </div>
             </div>
-
-            {isOwnProfile && !isEditing && (
-              <button
-                onClick={() => setIsEditing(true)}
-                className="px-4 py-2 border border-primary-500 text-primary-500 rounded-lg font-medium hover:bg-primary-50 transition-colors"
-              >
-                Edit Profile
-              </button>
-            )}
+            <h2 className="text-3xl font-bold text-gray-900 mb-2">Sharing Opini Arek Kost</h2>
+            <p className="text-gray-600">Masuk ke akun Anda</p>
           </div>
 
-          {isEditing ? (
-            <form onSubmit={handleUpdateProfile} className="space-y-4 mt-4">
-              {avatarFile && (
-                <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
-                  <p className="text-sm text-blue-700">
-                    ✨ Avatar baru akan diupload: {avatarFile.name}
-                  </p>
-                </div>
-              )}
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Nama Lengkap
-                </label>
-                <input
-                  type="text"
-                  value={editForm.full_name}
-                  onChange={(e) => setEditForm({ ...editForm, full_name: e.target.value })}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Bio
-                </label>
-                <textarea
-                  value={editForm.bio}
-                  onChange={(e) => setEditForm({ ...editForm, bio: e.target.value })}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none resize-none"
-                  rows={3}
-                  maxLength={150}
-                />
-                <p className="text-xs text-gray-500 mt-1">{editForm.bio.length}/150</p>
-              </div>
-
-              <div className="flex space-x-3">
-                <button
-                  type="submit"
-                  disabled={uploading}
-                  className="flex-1 py-2 bg-primary-500 text-white rounded-lg font-medium hover:bg-primary-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {uploading ? (
-                    <span className="flex items-center justify-center">
-                      <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
-                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
-                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"/>
-                      </svg>
-                      Menyimpan...
-                    </span>
-                  ) : (
-                    'Simpan'
-                  )}
-                </button>
-                <button
-                  type="button"
-                  onClick={handleCancelEdit}
-                  disabled={uploading}
-                  className="flex-1 py-2 border border-gray-300 text-gray-700 rounded-lg font-medium hover:bg-gray-50 transition-colors disabled:opacity-50"
-                >
-                  Batal
-                </button>
-              </div>
-            </form>
-          ) : (
-            <>
-              {profile.bio && (
-                <p className="text-gray-700 mt-4">{profile.bio}</p>
-              )}
-
-              <div className="flex items-center space-x-6 mt-6 pt-4 border-t border-gray-100">
-                <div>
-                  <span className="font-bold text-gray-900">{posts.length}</span>
-                  <span className="text-gray-500 ml-1">Threads</span>
-                </div>
-              </div>
-            </>
-          )}
-        </div>
-
-        <div className="mb-4">
-          <h2 className="text-xl font-bold text-gray-900">Threads</h2>
-        </div>
-
-        {posts.length === 0 ? (
-          <div className="bg-white rounded-xl shadow-md p-12 text-center">
-            <p className="text-gray-500">Belum ada post</p>
-          </div>
-        ) : (
-          <div>
-            {posts.map((post) => (
-              <ThreadCard
-                key={post.id}
-                post={post}
-                onDelete={fetchUserPosts}
-                onUpdate={fetchUserPosts}
+          {/* Email Login Form */}
+          <form onSubmit={handleEmailLogin} className="space-y-4 mb-6">
+            <div>
+              <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-2">
+                Email
+              </label>
+              <input
+                id="email"
+                type="email"
+                required
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none transition"
+                placeholder="nama@email.com"
+                disabled={loading || googleLoading}
               />
-            ))}
+            </div>
+
+            <div>
+              <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-2">
+                Password
+              </label>
+              <input
+                id="password"
+                type="password"
+                required
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none transition"
+                placeholder="••••••••"
+                disabled={loading || googleLoading}
+              />
+            </div>
+
+            <button
+              type="submit"
+              disabled={loading || googleLoading}
+              className="w-full py-3 px-4 bg-primary-500 text-white rounded-lg font-medium hover:bg-primary-600 disabled:opacity-50 disabled:cursor-not-allowed transition-all transform hover:scale-[1.02] active:scale-[0.98]"
+            >
+              {loading ? (
+                <span className="flex items-center justify-center">
+                  <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"/>
+                  </svg>
+                  Memproses...
+                </span>
+              ) : (
+                'Masuk dengan Email'
+              )}
+            </button>
+          </form>
+
+          {/* Divider */}
+          <div className="relative mb-6">
+            <div className="absolute inset-0 flex items-center">
+              <div className="w-full border-t border-gray-300"></div>
+            </div>
+            <div className="relative flex justify-center text-sm">
+              <span className="px-3 bg-white text-gray-500 font-medium">Atau lanjutkan dengan</span>
+            </div>
           </div>
-        )}
-      </main>
+
+          {/* Google Login */}
+          <button
+            onClick={handleGoogleLogin}
+            disabled={loading || googleLoading}
+            className="w-full py-3 px-4 border-2 border-gray-300 rounded-lg font-medium hover:bg-gray-50 transition-all flex items-center justify-center space-x-3 disabled:opacity-50 disabled:cursor-not-allowed transform hover:scale-[1.02] active:scale-[0.98]"
+          >
+            {googleLoading ? (
+              <>
+                <svg className="animate-spin h-5 w-5 text-gray-600" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"/>
+                </svg>
+                <span className="text-gray-700">Menghubungkan...</span>
+              </>
+            ) : (
+              <>
+                <svg className="w-5 h-5" viewBox="0 0 24 24">
+                  <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+                  <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+                  <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
+                  <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
+                </svg>
+                <span className="text-gray-700 font-medium">Google</span>
+              </>
+            )}
+          </button>
+
+          {/* Troubleshooting */}
+          <div className="mt-6 text-center">
+            <button
+              onClick={clearCacheAndReload}
+              className="text-sm text-gray-500 hover:text-primary-600 underline transition-colors"
+              disabled={loading || googleLoading}
+            >
+              Mengalami masalah? Bersihkan cache
+            </button>
+          </div>
+
+          {/* Register Link */}
+          <p className="text-center text-sm text-gray-600 mt-6">
+            Belum punya akun?{' '}
+            <Link href="/register" className="font-medium text-primary-600 hover:text-primary-500 transition-colors">
+              Daftar sekarang
+            </Link>
+          </p>
+        </div>
+
+        {/* Note */}
+        <div className="mt-6 text-center">
+          <p className="text-xs text-gray-400">
+            🔐 Menggunakan cookie-based authentication
+          </p>
+        </div>
+      </div>
     </div>
+  )
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary-50 to-green-50">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-16 w-16 border-t-2 border-b-2 border-primary-500 mx-auto mb-4"></div>
+          <p className="text-gray-600 font-medium">Memuat...</p>
+        </div>
+      </div>
+    }>
+      <LoginForm />
+    </Suspense>
   )
 }
 
