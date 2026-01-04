@@ -4,18 +4,48 @@ import { useState, useEffect } from 'react'
 
 export default function ThemeToggle() {
   const [isDark, setIsDark] = useState(false)
+  const [mounted, setMounted] = useState(false)
 
+  // Initialize theme on mount
   useEffect(() => {
+    setMounted(true)
+    
+    // Check localStorage first, then system preference
     const savedTheme = localStorage.getItem('theme')
     const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches
     
     const shouldBeDark = savedTheme === 'dark' || (!savedTheme && prefersDark)
     setIsDark(shouldBeDark)
     
+    // Apply theme immediately
     if (shouldBeDark) {
       document.documentElement.classList.add('dark')
+    } else {
+      document.documentElement.classList.remove('dark')
     }
   }, [])
+
+  // Listen for system theme changes
+  useEffect(() => {
+    if (!mounted) return
+
+    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)')
+    const handleChange = (e: MediaQueryListEvent) => {
+      // Only auto-switch if no manual preference is saved
+      if (!localStorage.getItem('theme')) {
+        const shouldBeDark = e.matches
+        setIsDark(shouldBeDark)
+        if (shouldBeDark) {
+          document.documentElement.classList.add('dark')
+        } else {
+          document.documentElement.classList.remove('dark')
+        }
+      }
+    }
+
+    mediaQuery.addEventListener('change', handleChange)
+    return () => mediaQuery.removeEventListener('change', handleChange)
+  }, [mounted])
 
   const toggleTheme = () => {
     const newTheme = !isDark
@@ -28,6 +58,15 @@ export default function ThemeToggle() {
       document.documentElement.classList.remove('dark')
       localStorage.setItem('theme', 'light')
     }
+  }
+
+  // Prevent flash of unstyled content
+  if (!mounted) {
+    return (
+      <div className="flex items-center">
+        <div className="w-[68px] h-[37.4px] opacity-0" /> {/* Invisible placeholder */}
+      </div>
+    )
   }
 
   return (
@@ -137,6 +176,7 @@ export default function ThemeToggle() {
           type="checkbox" 
           checked={isDark}
           onChange={toggleTheme}
+          aria-label="Toggle dark mode"
         />
         <span className="slider">
           <div className="star star_1" />
