@@ -8,8 +8,8 @@ import toast from 'react-hot-toast'
 import { generateAvatarUrl } from '@/utils/helpers'
 
 // ✅ Import sound files
-import truckSound from '@/components/sound/volvo-engine-431665.mp3'
-import successSound from '@/components/sound/successed-295058.mp3'
+import truckSound from '@/public/sound/volvo-engine-431665.mp3'
+import successSound from '@/public/sound/successed-295058.mp3'
 
 interface CreatePostProps {
   onPostCreated?: () => void
