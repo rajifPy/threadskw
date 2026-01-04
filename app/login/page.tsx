@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, Suspense } from 'react'
-import { useSearchParams } from 'next/navigation'
+import { useSearchParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
 import toast from 'react-hot-toast'
@@ -12,13 +12,32 @@ function LoginForm() {
   const [loading, setLoading] = useState(false)
   const [googleLoading, setGoogleLoading] = useState(false)
   const [mounted, setMounted] = useState(false)
+  const [checking, setChecking] = useState(true)
   const searchParams = useSearchParams()
+  const router = useRouter()
   
-  // Initialize Supabase client only on mount (client-side)
   const [supabase] = useState(() => createClient())
 
   useEffect(() => {
     setMounted(true)
+    
+    // ✅ Check if already logged in
+    const checkAuth = async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession()
+        if (session?.user) {
+          console.log('✅ [Login] Already logged in, redirecting to home')
+          router.replace('/')
+          return
+        }
+      } catch (error) {
+        console.error('❌ [Login] Error checking session:', error)
+      } finally {
+        setChecking(false)
+      }
+    }
+    
+    checkAuth()
     
     const error = searchParams.get('error')
     const message = searchParams.get('message')
@@ -28,9 +47,9 @@ function LoginForm() {
     } else if (error) {
       toast.error(decodeURIComponent(error), { duration: 5000 })
     }
-  }, [searchParams])
+  }, [searchParams, supabase, router])
 
-  if (!mounted) {
+  if (!mounted || checking) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary-50 to-green-50">
         <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary-500"></div>
@@ -43,20 +62,26 @@ function LoginForm() {
     setLoading(true)
 
     try {
-      const { error } = await supabase.auth.signInWithPassword({
+      console.log('🔐 [Login] Starting email login...')
+      
+      const { data, error } = await supabase.auth.signInWithPassword({
         email,
         password,
       })
 
       if (error) throw error
 
-      toast.success('Login berhasil!')
+      console.log('✅ [Login] Login successful:', data.user?.email)
+      toast.success('Login berhasil! Mengalihkan...')
       
-      // Wait for cookies to be set
-      await new Promise(resolve => setTimeout(resolve, 500))
+      // ✅ Wait longer for cookies to be set and propagate
+      await new Promise(resolve => setTimeout(resolve, 1500))
       
-      // Force navigation
+      // ✅ Hard reload to ensure middleware sees new cookies
+      console.log('🔄 [Login] Redirecting to home...')
       window.location.href = '/'
+      
+      // Keep loading state true (page will unload anyway)
       
     } catch (error: any) {
       console.error('❌ [Login] Error:', error)
@@ -79,7 +104,7 @@ function LoginForm() {
     try {
       console.log('🔐 [Google Login] Starting...')
       
-      // Clear existing session
+      // ✅ Clear existing session first
       try {
         await supabase.auth.signOut({ scope: 'local' })
         console.log('✅ [Google Login] Cleared existing session')
@@ -95,7 +120,7 @@ function LoginForm() {
       console.log('🌐 [Google Login] Origin:', origin)
       console.log('↩️ [Google Login] Redirect URL:', redirectTo)
       
-      const { error } = await supabase.auth.signInWithOAuth({
+      const { data, error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
           redirectTo,
@@ -114,6 +139,8 @@ function LoginForm() {
       
       console.log('✅ [Google Login] Redirect initiated')
       
+      // ✅ OAuth will handle redirect, don't set loading to false
+      
     } catch (error: any) {
       console.error('❌ [Google Login] Failed:', error)
       toast.error('Login dengan Google gagal. Silakan coba lagi.')
@@ -125,7 +152,6 @@ function LoginForm() {
     try {
       console.log('🧹 [Clear] Clearing session...')
       
-      // Only sign out from Supabase (cookies only)
       await supabase.auth.signOut()
       
       toast.success('Cache berhasil dibersihkan!')
@@ -266,7 +292,7 @@ function LoginForm() {
         {/* Note */}
         <div className="mt-6 text-center">
           <p className="text-xs text-gray-400">
-            🔐 Menggunakan cookie-based authentication (No localStorage)
+            🔐 Menggunakan cookie-based authentication
           </p>
         </div>
       </div>
