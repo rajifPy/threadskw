@@ -104,27 +104,48 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     const initAuth = async () => {
       try {
+        console.log('🔵 [Auth] Initializing authentication...')
+        
         // ✅ Use getSession instead of getUser (faster)
-        const { data: { session } } = await supabase.auth.getSession()
+        const { data: { session }, error: sessionError } = await supabase.auth.getSession()
+
+        if (sessionError) {
+          console.error('❌ [Auth] Session error:', sessionError)
+          if (mounted) {
+            setLoading(false)
+          }
+          return
+        }
 
         if (session?.user && mounted) {
-          console.log('✅ Session found:', session.user.email)
+          console.log('✅ [Auth] Session found for:', session.user.email)
+          console.log('🔵 [Auth] User ID:', session.user.id)
           setUser(session.user)
           
-          // ✅ Fetch profile in parallel, don't block UI
-          fetchProfile(session.user.id).then(profileData => {
-            if (mounted) {
+          // ✅ Fetch profile with retry logic
+          console.log('🔵 [Auth] Fetching profile...')
+          const profileData = await fetchProfile(session.user.id)
+          
+          if (mounted) {
+            if (profileData) {
+              console.log('✅ [Auth] Profile set successfully:', profileData.username)
               setProfile(profileData)
+            } else {
+              console.log('⚠️ [Auth] Profile not found, will retry on home page')
+              setProfile(null)
             }
-          })
+          }
+        } else {
+          console.log('⚠️ [Auth] No active session')
         }
         
         if (mounted) {
           setLoading(false)
           initCompleteRef.current = true
+          console.log('✅ [Auth] Initialization complete')
         }
       } catch (error) {
-        console.error('❌ Init error:', error)
+        console.error('❌ [Auth] Init error:', error)
         if (mounted) {
           setLoading(false)
         }
