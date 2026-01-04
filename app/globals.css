@@ -17,6 +17,12 @@ body {
   background-color: #f0fdf4;
 }
 
+/* Dark mode */
+.dark body {
+  background-color: #1a1a1a;
+  color: #ffffff;
+}
+
 @layer base {
   html {
     @apply antialiased;
