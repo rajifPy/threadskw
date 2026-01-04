@@ -32,8 +32,8 @@ export async function GET(request: NextRequest) {
 
   const cookieStore = cookies()
   
-  // ✅ Create response dengan redirect ke home
-  const response = NextResponse.redirect(new URL('/', requestUrl.origin))
+  // ✅ Create response - Will redirect with HTML loading page
+  let response = NextResponse.next()
   
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -54,6 +54,7 @@ export async function GET(request: NextRequest) {
               httpOnly: true,
               sameSite: 'lax',
             })
+            // ✅ Store for setting in response
             response.cookies.set({
               name,
               value,
@@ -99,11 +100,10 @@ export async function GET(request: NextRequest) {
     if (sessionError) {
       console.error('❌ [Callback] Session exchange error:', sessionError)
       
-      // If PKCE error, clear everything and redirect with instruction
       if (sessionError.message?.toLowerCase().includes('pkce') || 
           sessionError.message?.toLowerCase().includes('code_verifier')) {
         
-        const clearResponse = new NextResponse(
+        return new NextResponse(
           `
           <!DOCTYPE html>
           <html>
@@ -150,8 +150,6 @@ export async function GET(request: NextRequest) {
                 <p>Mohon tunggu sebentar...</p>
               </div>
               <script>
-                console.log('PKCE error detected, clearing all storage...');
-                
                 setTimeout(function() {
                   window.location.href = '/login?message=' + encodeURIComponent('Silakan coba login kembali.');
                 }, 2000);
@@ -164,12 +162,9 @@ export async function GET(request: NextRequest) {
             headers: {
               'Content-Type': 'text/html',
               'Cache-Control': 'no-store, no-cache, must-revalidate, private',
-              'Pragma': 'no-cache',
             },
           }
         )
-        
-        return clearResponse
       }
       
       return NextResponse.redirect(
@@ -188,7 +183,7 @@ export async function GET(request: NextRequest) {
 
     console.log('✅ [Callback] User authenticated:', user.email)
     
-    // ✅ Check/create profile dengan retry yang lebih cepat
+    // ✅ Check/create profile
     let profile = null
     let attempts = 0
     const maxAttempts = 3
@@ -197,7 +192,6 @@ export async function GET(request: NextRequest) {
       attempts++
       
       if (attempts > 1) {
-        // ✅ Shorter wait time
         await new Promise(resolve => setTimeout(resolve, 500))
       }
       
@@ -215,7 +209,6 @@ export async function GET(request: NextRequest) {
         break
       }
       
-      // Try to create profile if doesn't exist
       if (attempts === 1) {
         console.log('📝 [Callback] Creating profile...')
         
@@ -242,7 +235,6 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // ✅ If still no profile, redirect to debug (bukan loop ke callback lagi)
     if (!profile) {
       console.warn('⚠️ [Callback] Profile not found after retries, redirecting to debug')
       return NextResponse.redirect(new URL('/debug', requestUrl.origin))
@@ -250,12 +242,87 @@ export async function GET(request: NextRequest) {
 
     console.log('🎉 [Callback] Success! Redirecting to home...')
     
-    // ✅ Set headers untuk prevent caching
-    response.headers.set('Cache-Control', 'no-store, no-cache, must-revalidate, private')
-    response.headers.set('Pragma', 'no-cache')
-    response.headers.set('Expires', '0')
-    
-    return response
+    // ✅ FIX: Return HTML page that waits for cookies then redirects
+    // This ensures cookies are set in browser before navigation
+    return new NextResponse(
+      `
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>Login Successful</title>
+          <meta http-equiv="refresh" content="2;url=/">
+          <style>
+            body {
+              font-family: system-ui, -apple-system, sans-serif;
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              min-height: 100vh;
+              margin: 0;
+              background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%);
+            }
+            .container {
+              text-align: center;
+              padding: 2rem;
+              background: white;
+              border-radius: 1rem;
+              box-shadow: 0 10px 25px rgba(0,0,0,0.1);
+              max-width: 400px;
+            }
+            .success-icon {
+              width: 64px;
+              height: 64px;
+              margin: 0 auto 1rem;
+              background: #22c55e;
+              border-radius: 50%;
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              font-size: 32px;
+            }
+            h2 { color: #166534; margin: 0 0 0.5rem; }
+            p { color: #6b7280; margin: 0; }
+            .spinner {
+              display: inline-block;
+              width: 16px;
+              height: 16px;
+              border: 2px solid #e5e7eb;
+              border-top-color: #22c55e;
+              border-radius: 50%;
+              animation: spin 1s linear infinite;
+              margin-left: 8px;
+              vertical-align: middle;
+            }
+            @keyframes spin {
+              to { transform: rotate(360deg); }
+            }
+          </style>
+        </head>
+        <body>
+          <div class="container">
+            <div class="success-icon">✓</div>
+            <h2>Login Berhasil! 🎉</h2>
+            <p>Mengalihkan ke dashboard<span class="spinner"></span></p>
+          </div>
+          <script>
+            // Wait 2 seconds for cookies to propagate
+            setTimeout(function() {
+              window.location.href = '/';
+            }, 2000);
+          </script>
+        </body>
+      </html>
+      `,
+      {
+        status: 200,
+        headers: {
+          'Content-Type': 'text/html',
+          'Cache-Control': 'no-store, no-cache, must-revalidate, private',
+          'Pragma': 'no-cache',
+          'Expires': '0',
+        },
+      }
+    )
     
   } catch (err: any) {
     console.error('❌ [Callback] Unexpected error:', err)
