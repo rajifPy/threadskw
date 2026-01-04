@@ -6,8 +6,9 @@ import { createClient } from '@/lib/supabase/client'
 import { useAuth } from '@/components/layout/AuthProvider'
 import { PostWithProfile } from '@/lib/supabase/types'
 import Navbar from '@/components/ui/Navbar'
-import ThreadCard from '@/components/ui/ThreadCard'
-import CommentCard from '@/components/ui/CommentCard'
+import Link from 'next/link'
+import Image from 'next/image'
+import { getRelativeTime, generateAvatarUrl } from '@/utils/helpers'
 import toast from 'react-hot-toast'
 
 interface CommentWithProfile {
@@ -33,6 +34,8 @@ export default function PostDetailPage() {
   const [newComment, setNewComment] = useState('')
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
+  const [likesCount, setLikesCount] = useState(0)
+  const [isLiked, setIsLiked] = useState(false)
   const supabase = createClient()
 
   const postId = params.id as string
@@ -62,7 +65,6 @@ export default function PostDetailPage() {
 
       if (postError) throw postError
 
-      // Fetch likes and comments counts
       const [{ count: likesCount }, { count: commentsCount }] = await Promise.all([
         supabase.from('likes').select('*', { count: 'exact', head: true }).eq('post_id', postId),
         supabase.from('comments').select('*', { count: 'exact', head: true }).eq('post_id', postId),
@@ -75,6 +77,20 @@ export default function PostDetailPage() {
           comments: commentsCount || 0,
         },
       } as PostWithProfile)
+      
+      setLikesCount(likesCount || 0)
+      
+      // Check if user liked this post
+      if (user) {
+        const { data: likeData } = await supabase
+          .from('likes')
+          .select('id')
+          .eq('post_id', postId)
+          .eq('user_id', user.id)
+          .single()
+        
+        setIsLiked(!!likeData)
+      }
     } catch (error) {
       console.error('Error fetching post:', error)
       toast.error('Post tidak ditemukan')
@@ -113,7 +129,6 @@ export default function PostDetailPage() {
       fetchPost()
       fetchComments()
 
-      // Subscribe to real-time changes
       const channel = supabase
         .channel(`post-${postId}`)
         .on('postgres_changes', { event: '*', schema: 'public', table: 'comments', filter: `post_id=eq.${postId}` }, () => {
@@ -130,6 +145,33 @@ export default function PostDetailPage() {
       }
     }
   }, [user, postId])
+
+  const handleLike = async (e: React.MouseEvent) => {
+    e.preventDefault()
+    if (!user) return
+
+    try {
+      if (isLiked) {
+        await supabase
+          .from('likes')
+          .delete()
+          .eq('post_id', parseInt(postId))
+          .eq('user_id', user.id)
+        
+        setIsLiked(false)
+        setLikesCount(prev => prev - 1)
+      } else {
+        await supabase
+          .from('likes')
+          .insert({ post_id: parseInt(postId), user_id: user.id })
+        
+        setIsLiked(true)
+        setLikesCount(prev => prev + 1)
+      }
+    } catch (error) {
+      console.error('Error toggling like:', error)
+    }
+  }
 
   const handleSubmitComment = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -162,6 +204,25 @@ export default function PostDetailPage() {
     }
   }
 
+  const handleDeleteComment = async (commentId: number) => {
+    if (!confirm('Yakin ingin menghapus komentar ini?')) return
+
+    try {
+      const { error } = await supabase
+        .from('comments')
+        .delete()
+        .eq('id', commentId)
+
+      if (error) throw error
+
+      toast.success('Komentar berhasil dihapus')
+      fetchComments()
+    } catch (error) {
+      console.error('Error deleting comment:', error)
+      toast.error('Gagal menghapus komentar')
+    }
+  }
+
   if (authLoading || loading || !user) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -175,7 +236,7 @@ export default function PostDetailPage() {
   }
 
   return (
-    <div className="min-h-screen">
+    <div className="min-h-screen bg-gradient-to-br from-primary-50 to-green-50">
       <Navbar />
       
       <main className="max-w-2xl mx-auto px-4 py-6">
@@ -189,18 +250,71 @@ export default function PostDetailPage() {
           <span>Kembali</span>
         </button>
 
-        <ThreadCard 
-          post={post} 
-          onDelete={() => router.push('/')}
-          onUpdate={fetchPost}
-        />
+        {/* Main Post */}
+        <div className="bg-white rounded-xl shadow-md p-6 mb-6">
+          <div className="flex items-start space-x-3">
+            <Link href={`/profile/${post.profiles.username}`}>
+              <div className="relative w-12 h-12 rounded-full overflow-hidden flex-shrink-0">
+                <Image
+                  src={post.profiles.avatar_url || generateAvatarUrl(post.profiles.username)}
+                  alt={post.profiles.username}
+                  fill
+                  className="object-cover"
+                />
+              </div>
+            </Link>
 
-        <div className="bg-white rounded-xl shadow-md p-4 mt-4">
-          <h3 className="font-bold text-gray-900 mb-4">
-            Komentar ({comments.length})
-          </h3>
+            <div className="flex-1">
+              <Link href={`/profile/${post.profiles.username}`} className="flex items-center space-x-2 mb-1">
+                <span className="font-bold text-gray-900">{post.profiles.full_name || post.profiles.username}</span>
+                <span className="text-gray-500">@{post.profiles.username}</span>
+              </Link>
 
-          <form onSubmit={handleSubmitComment} className="mb-6">
+              <p className="text-gray-800 mb-3 whitespace-pre-wrap">{post.content}</p>
+
+              {post.image_url && (
+                <div className="relative w-full rounded-lg overflow-hidden mb-3">
+                  <Image
+                    src={post.image_url}
+                    alt="Post image"
+                    width={600}
+                    height={400}
+                    className="w-full h-auto max-h-96 object-cover"
+                  />
+                </div>
+              )}
+
+              <div className="flex items-center space-x-1 text-sm text-gray-500 mb-4">
+                <span>{getRelativeTime(post.created_at)}</span>
+              </div>
+
+              <div className="flex items-center space-x-6 pt-4 border-t border-gray-100">
+                <button
+                  onClick={handleLike}
+                  className={`flex items-center space-x-2 transition-all ${
+                    isLiked ? 'text-red-500' : 'text-gray-500 hover:text-red-500'
+                  }`}
+                >
+                  <svg className={`w-5 h-5 ${isLiked ? 'fill-current' : ''}`} fill={isLiked ? 'currentColor' : 'none'} stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" />
+                  </svg>
+                  <span className="text-sm font-medium">{likesCount}</span>
+                </button>
+
+                <div className="flex items-center space-x-2 text-gray-500">
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                  </svg>
+                  <span className="text-sm font-medium">{comments.length}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Comment Form */}
+        <div className="bg-white rounded-xl shadow-md p-4 mb-6">
+          <form onSubmit={handleSubmitComment}>
             <textarea
               value={newComment}
               onChange={(e) => setNewComment(e.target.value)}
@@ -218,27 +332,72 @@ export default function PostDetailPage() {
                 disabled={submitting || !newComment.trim()}
                 className="px-6 py-2 bg-primary-500 text-white rounded-full font-medium hover:bg-primary-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               >
-                {submitting ? 'Loading...' : 'Kirim'}
+                {submitting ? 'Posting...' : 'Kirim'}
               </button>
             </div>
           </form>
+        </div>
 
-          <div className="space-y-2">
-            {comments.length === 0 ? (
-              <p className="text-center text-gray-500 py-8">Belum ada komentar</p>
-            ) : (
-              comments.map((comment) => (
-                <CommentCard 
-                  key={comment.id} 
-                  comment={comment}
-                  onDelete={fetchComments}
-                />
-              ))
-            )}
-          </div>
+        {/* Comments with Thread Line */}
+        <div className="bg-white rounded-xl shadow-md p-6">
+          <h3 className="font-bold text-gray-900 mb-4">
+            Komentar ({comments.length})
+          </h3>
+
+          {comments.length === 0 ? (
+            <p className="text-center text-gray-500 py-8">Belum ada komentar</p>
+          ) : (
+            <div className="space-y-0">
+              {comments.map((comment, index) => (
+                <div key={comment.id} className="relative flex items-start space-x-3 pb-4">
+                  {/* Thread Line - Garis Vertikal */}
+                  {index < comments.length - 1 && (
+                    <div className="absolute left-5 top-12 bottom-0 w-0.5 bg-gray-200"></div>
+                  )}
+
+                  {/* Avatar */}
+                  <Link href={`/profile/${comment.profiles.username}`}>
+                    <div className="relative w-10 h-10 rounded-full overflow-hidden flex-shrink-0 z-10 bg-white">
+                      <Image
+                        src={comment.profiles.avatar_url || generateAvatarUrl(comment.profiles.username)}
+                        alt={comment.profiles.username}
+                        fill
+                        className="object-cover"
+                      />
+                    </div>
+                  </Link>
+
+                  {/* Comment Content */}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between mb-1">
+                      <Link href={`/profile/${comment.profiles.username}`} className="flex items-center space-x-2">
+                        <span className="font-semibold text-gray-900 text-sm">
+                          {comment.profiles.full_name || comment.profiles.username}
+                        </span>
+                        <span className="text-gray-500 text-sm">@{comment.profiles.username}</span>
+                      </Link>
+                      <span className="text-xs text-gray-400">{getRelativeTime(comment.created_at)}</span>
+                    </div>
+
+                    <p className="text-gray-800 text-sm whitespace-pre-wrap mb-2">{comment.content}</p>
+
+                    {user?.id === comment.user_id && (
+                      <button
+                        onClick={() => handleDeleteComment(comment.id)}
+                        className="text-xs text-red-500 hover:text-red-600 transition-colors"
+                      >
+                        Hapus
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </main>
     </div>
   )
 }
+
 export const dynamic = 'force-dynamic'
