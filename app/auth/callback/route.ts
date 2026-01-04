@@ -90,39 +90,43 @@ export async function GET(request: NextRequest) {
 
     console.log('✅ User authenticated:', user.email)
     
-    // ✅ OPTIMIZED: Defer profile creation to AuthProvider
-    // Only create profile if it doesn't exist, but don't wait for it
-    supabase
+    // ✅ Check and create profile - MUST WAIT for this
+    const { data: existingProfile } = await supabase
       .from('profiles')
       .select('id')
       .eq('id', user.id)
       .maybeSingle()
-      .then(({ data: profile }) => {
-        if (!profile) {
-          console.log('⚠️ Profile not found, creating in background...')
-          
-          const username = (
-            user.user_metadata?.username || 
-            user.user_metadata?.preferred_username ||
-            user.user_metadata?.name?.toLowerCase().replace(/[^a-z0-9_]/g, '_') ||
-            user.email?.split('@')[0] || 
-            `user_${user.id.substring(0, 8)}`
-          ).toLowerCase().replace(/[^a-z0-9_]/g, '_')
-          
-          supabase.from('profiles').insert({
-            id: user.id,
-            username: username,
-            full_name: user.user_metadata?.full_name || user.user_metadata?.name || null,
-            avatar_url: user.user_metadata?.avatar_url || user.user_metadata?.picture || null,
-          }).then(() => {
-            console.log('✅ Profile created in background')
-          }).catch(err => {
-            console.error('❌ Profile creation error:', err)
-          })
-        }
+
+    if (!existingProfile) {
+      console.log('⚠️ Profile not found, creating...')
+      
+      const username = (
+        user.user_metadata?.username || 
+        user.user_metadata?.preferred_username ||
+        user.user_metadata?.name?.toLowerCase().replace(/[^a-z0-9_]/g, '_') ||
+        user.email?.split('@')[0] || 
+        `user_${user.id.substring(0, 8)}`
+      ).toLowerCase().replace(/[^a-z0-9_]/g, '_')
+      
+      const { error: insertError } = await supabase.from('profiles').insert({
+        id: user.id,
+        username: username,
+        full_name: user.user_metadata?.full_name || user.user_metadata?.name || null,
+        avatar_url: user.user_metadata?.avatar_url || user.user_metadata?.picture || null,
       })
 
-    // ✅ Redirect immediately without waiting for profile
+      if (insertError) {
+        console.error('❌ Profile creation error:', insertError)
+        // Redirect to debug page if profile creation fails
+        return NextResponse.redirect(new URL('/debug', requestUrl.origin))
+      }
+      
+      console.log('✅ Profile created successfully')
+    } else {
+      console.log('✅ Profile already exists')
+    }
+
+    // ✅ Redirect after profile is confirmed to exist
     return new NextResponse(
       `<!DOCTYPE html>
       <html>
