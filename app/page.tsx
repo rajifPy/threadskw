@@ -15,15 +15,14 @@ export default function HomePage() {
   const [posts, setPosts] = useState<PostWithProfile[]>([])
   const [loading, setLoading] = useState(true)
   const [retryCount, setRetryCount] = useState(0)
-  const [initialLoading, setInitialLoading] = useState(true) // ✅ TAMBAH INI
+  const [initialLoading, setInitialLoading] = useState(true)
   const router = useRouter()
   const supabase = createClient()
 
-  // ✅ TAMBAH: Minimum delay 3 detik untuk initial loading
   useEffect(() => {
     const timer = setTimeout(() => {
       setInitialLoading(false)
-    }, 3000) // 3 detik
+    }, 3000)
 
     return () => clearTimeout(timer)
   }, [])
@@ -56,7 +55,7 @@ export default function HomePage() {
   }, [user, profile, authLoading, router, retryCount, refreshProfile])
 
   const fetchPosts = async () => {
-    const startTime = Date.now() // ✅ TAMBAH: Track waktu mulai
+    const startTime = Date.now()
     
     try {
       const { data: postsData, error } = await supabase
@@ -81,7 +80,6 @@ export default function HomePage() {
       if (postIds.length === 0) {
         setPosts([])
         
-        // ✅ TAMBAH: Pastikan minimal 3 detik
         const elapsed = Date.now() - startTime
         if (elapsed < 3000) {
           await new Promise(resolve => setTimeout(resolve, 3000 - elapsed))
@@ -122,7 +120,6 @@ export default function HomePage() {
 
       setPosts(postsWithCounts)
       
-      // ✅ TAMBAH: Pastikan minimal 3 detik
       const elapsed = Date.now() - startTime
       if (elapsed < 3000) {
         await new Promise(resolve => setTimeout(resolve, 3000 - elapsed))
@@ -131,7 +128,6 @@ export default function HomePage() {
     } catch (error) {
       console.error('❌ Error fetching posts:', error)
       
-      // ✅ TAMBAH: Pastikan minimal 3 detik bahkan saat error
       const elapsed = Date.now() - startTime
       if (elapsed < 3000) {
         await new Promise(resolve => setTimeout(resolve, 3000 - elapsed))
@@ -160,31 +156,28 @@ export default function HomePage() {
     }
   }, [user, profile])
 
-  // ✅ GANTI: Gabungkan authLoading dengan initialLoading
   if (authLoading || initialLoading) {
     return <LoadingCube text="Loading authentication..." />
   }
 
-  // Show retry state
   if (user && !profile && retryCount < 3) {
     return <LoadingCube text={`Loading profile... Attempt ${retryCount + 1} of 3`} />
   }
 
-  // Don't render if no user or profile
   if (!user || !profile) {
     return null
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-primary-50 to-green-50">
+    <div className="min-h-screen bg-gradient-to-br from-primary-50 to-green-50 dark:from-gray-900 dark:to-slate-900 transition-colors duration-300">
       <Navbar />
       
       <main className="max-w-2xl mx-auto px-4 py-6">
-        <div className="bg-white rounded-xl shadow-md p-6 mb-6">
-          <h1 className="text-2xl font-bold text-gray-900 mb-2">
+        <div className="bg-white dark:bg-gray-800 rounded-xl shadow-md p-6 mb-6 transition-colors duration-300">
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">
             Selamat Datang, {profile.full_name || profile.username}! 👋
           </h1>
-          <p className="text-gray-600">
+          <p className="text-gray-600 dark:text-gray-300">
             Bagikan pendapat dan diskusikan ide-ide menarik dengan komunitas
           </p>
         </div>
@@ -192,18 +185,18 @@ export default function HomePage() {
         <CreatePost onPostCreated={fetchPosts} />
 
         <div className="mb-4">
-          <h2 className="text-xl font-bold text-gray-900">Timeline</h2>
+          <h2 className="text-xl font-bold text-gray-900 dark:text-white">Timeline</h2>
         </div>
 
         {loading ? (
           <LoadingCube text="Loading posts..." fullScreen={false} />
         ) : posts.length === 0 ? (
-          <div className="bg-white rounded-xl shadow-md p-12 text-center">
-            <svg className="w-16 h-16 text-gray-400 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-md p-12 text-center transition-colors duration-300">
+            <svg className="w-16 h-16 text-gray-400 dark:text-gray-500 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
             </svg>
-            <p className="text-gray-500 text-lg font-medium mb-2">Belum ada post</p>
-            <p className="text-gray-400 text-sm">Jadilah yang pertama membagikan pendapat!</p>
+            <p className="text-gray-500 dark:text-gray-400 text-lg font-medium mb-2">Belum ada post</p>
+            <p className="text-gray-400 dark:text-gray-500 text-sm">Jadilah yang pertama membagikan pendapat!</p>
           </div>
         ) : (
           <div>
