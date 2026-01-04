@@ -8,15 +8,25 @@ import { PostWithProfile } from '@/lib/supabase/types'
 import Navbar from '@/components/ui/Navbar'
 import CreatePost from '@/components/ui/CreatePost'
 import ThreadCard from '@/components/ui/ThreadCard'
-import LoadingCube from '@/components/ui/LoadingCube' // ✅ TAMBAH IMPORT INI
+import LoadingCube from '@/components/ui/LoadingCube'
 
 export default function HomePage() {
   const { user, profile, loading: authLoading, refreshProfile } = useAuth()
   const [posts, setPosts] = useState<PostWithProfile[]>([])
   const [loading, setLoading] = useState(true)
   const [retryCount, setRetryCount] = useState(0)
+  const [initialLoading, setInitialLoading] = useState(true) // ✅ TAMBAH INI
   const router = useRouter()
   const supabase = createClient()
+
+  // ✅ TAMBAH: Minimum delay 3 detik untuk initial loading
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setInitialLoading(false)
+    }, 3000) // 3 detik
+
+    return () => clearTimeout(timer)
+  }, [])
 
   useEffect(() => {
     if (!authLoading) {
@@ -46,6 +56,8 @@ export default function HomePage() {
   }, [user, profile, authLoading, router, retryCount, refreshProfile])
 
   const fetchPosts = async () => {
+    const startTime = Date.now() // ✅ TAMBAH: Track waktu mulai
+    
     try {
       const { data: postsData, error } = await supabase
         .from('posts')
@@ -68,6 +80,13 @@ export default function HomePage() {
       
       if (postIds.length === 0) {
         setPosts([])
+        
+        // ✅ TAMBAH: Pastikan minimal 3 detik
+        const elapsed = Date.now() - startTime
+        if (elapsed < 3000) {
+          await new Promise(resolve => setTimeout(resolve, 3000 - elapsed))
+        }
+        
         setLoading(false)
         return
       }
@@ -102,8 +121,21 @@ export default function HomePage() {
       })) as PostWithProfile[]
 
       setPosts(postsWithCounts)
+      
+      // ✅ TAMBAH: Pastikan minimal 3 detik
+      const elapsed = Date.now() - startTime
+      if (elapsed < 3000) {
+        await new Promise(resolve => setTimeout(resolve, 3000 - elapsed))
+      }
+      
     } catch (error) {
       console.error('❌ Error fetching posts:', error)
+      
+      // ✅ TAMBAH: Pastikan minimal 3 detik bahkan saat error
+      const elapsed = Date.now() - startTime
+      if (elapsed < 3000) {
+        await new Promise(resolve => setTimeout(resolve, 3000 - elapsed))
+      }
     } finally {
       setLoading(false)
     }
@@ -128,12 +160,12 @@ export default function HomePage() {
     }
   }, [user, profile])
 
-  // ✅ GANTI: Show loading state dengan LoadingCube
-  if (authLoading) {
+  // ✅ GANTI: Gabungkan authLoading dengan initialLoading
+  if (authLoading || initialLoading) {
     return <LoadingCube text="Loading authentication..." />
   }
 
-  // ✅ GANTI: Show retry state dengan LoadingCube
+  // Show retry state
   if (user && !profile && retryCount < 3) {
     return <LoadingCube text={`Loading profile... Attempt ${retryCount + 1} of 3`} />
   }
