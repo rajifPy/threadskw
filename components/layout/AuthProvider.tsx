@@ -29,18 +29,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true)
   const supabase = createClient()
   
-  // ✅ OPTIMASI: Prevent duplicate fetches
   const isFetchingRef = useRef(false)
   const profileCacheRef = useRef<Map<string, Profile>>(new Map())
+  const currentUserIdRef = useRef<string | null>(null) // ✅ Track current user
 
   const fetchProfile = useCallback(async (userId: string, userMetadata?: any): Promise<Profile | null> => {
-    // ✅ Check cache first
+    // ✅ FIX: Clear cache jika user berubah (account switch)
+    if (currentUserIdRef.current && currentUserIdRef.current !== userId) {
+      console.log('🔄 [Auth] User changed, clearing profile cache')
+      profileCacheRef.current.clear()
+    }
+    currentUserIdRef.current = userId
+
+    // Check cache first
     if (profileCacheRef.current.has(userId)) {
       console.log('✅ Using cached profile')
       return profileCacheRef.current.get(userId)!
     }
 
-    // ✅ Prevent duplicate concurrent fetches
+    // Prevent duplicate concurrent fetches
     if (isFetchingRef.current) {
       console.log('⏳ Profile fetch already in progress, waiting...')
       await new Promise(resolve => setTimeout(resolve, 500))
@@ -112,7 +119,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const refreshProfile = useCallback(async () => {
     if (user) {
-      // ✅ Clear cache untuk force refresh
       profileCacheRef.current.delete(user.id)
       const profileData = await fetchProfile(user.id, user.user_metadata)
       setProfile(profileData)
@@ -124,7 +130,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     let initComplete = false
 
     const initAuth = async () => {
-      // ✅ Prevent re-initialization
       if (initComplete) return
       
       try {
@@ -170,7 +175,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     }
 
-    // ✅ OPTIMASI: Debounce auth state changes
     let authChangeTimeout: NodeJS.Timeout
     
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
@@ -179,26 +183,36 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         
         if (!mounted) return
 
-        // ✅ Debounce untuk prevent multiple rapid calls
         clearTimeout(authChangeTimeout)
         authChangeTimeout = setTimeout(async () => {
           if (event === 'SIGNED_IN' && session?.user) {
             console.log('✅ [Auth] User signed in:', session.user.email)
+            
+            // ✅ FIX: Force clear cache on sign in untuk account switch
+            if (currentUserIdRef.current && currentUserIdRef.current !== session.user.id) {
+              console.log('🔄 [Auth] Different user detected, clearing all cache')
+              profileCacheRef.current.clear()
+            }
+            
             setUser(session.user)
+            setLoading(true) // ✅ Show loading saat fetch profile baru
             const profileData = await fetchProfile(session.user.id, session.user.user_metadata)
             setProfile(profileData)
             setLoading(false)
+            
           } else if (event === 'SIGNED_OUT') {
             console.log('👋 [Auth] User signed out')
             profileCacheRef.current.clear()
+            currentUserIdRef.current = null // ✅ Reset user ID tracking
             setUser(null)
             setProfile(null)
             setLoading(false)
+            
           } else if (event === 'TOKEN_REFRESHED' && session?.user) {
             console.log('🔄 [Auth] Token refreshed')
             setUser(session.user)
           }
-        }, 100) // 100ms debounce
+        }, 100)
       }
     )
 
@@ -215,9 +229,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       console.log('👋 [Auth] Signing out...')
       await supabase.auth.signOut()
+      
+      // ✅ FIX: Clear everything on sign out
       profileCacheRef.current.clear()
+      currentUserIdRef.current = null
       setUser(null)
       setProfile(null)
+      
       console.log('✅ [Auth] Sign out complete')
     } catch (error) {
       console.error('❌ [Auth] Sign out error:', error)
