@@ -32,8 +32,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const isFetchingRef = useRef(false)
   const initCompleteRef = useRef(false)
 
-  const fetchProfile = useCallback(async (userId: string): Promise<Profile | null> => {
-    if (isFetchingRef.current) {
+  const fetchProfile = useCallback(async (userId: string, retryAttempt: number = 0): Promise<Profile | null> => {
+    if (isFetchingRef.current && retryAttempt === 0) {
       console.log('⏳ [Auth] Already fetching profile, skipping...')
       return null
     }
@@ -41,39 +41,52 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     isFetchingRef.current = true
     
     try {
-      // ✅ Add timeout to prevent hanging
-      const timeoutPromise = new Promise<null>((_, reject) => 
-        setTimeout(() => reject(new Error('Profile fetch timeout')), 5000)
-      )
+      console.log(`🔵 [Auth] Fetching profile for user ${userId} (attempt ${retryAttempt + 1})`)
       
-      const fetchPromise = supabase
+      const { data, error } = await supabase
         .from('profiles')
         .select('*')
         .eq('id', userId)
         .maybeSingle()
       
-      const result = await Promise.race([fetchPromise, timeoutPromise])
-      
-      if (!result || 'error' in result) {
-        const error = 'error' in result ? result.error : null
-        if (error && error.code !== 'PGRST116') {
-          console.error('❌ Profile error:', error)
+      if (error) {
+        console.error('❌ [Auth] Profile fetch error:', error)
+        console.error('❌ [Auth] Error code:', error.code)
+        console.error('❌ [Auth] Error message:', error.message)
+        
+        // Retry on network errors
+        if (retryAttempt < 2 && (error.message.includes('fetch') || error.message.includes('network'))) {
+          console.log('🔄 [Auth] Retrying profile fetch...')
+          await new Promise(resolve => setTimeout(resolve, 1000))
+          return fetchProfile(userId, retryAttempt + 1)
         }
+        
         return null
       }
       
-      if (result.data) {
-        console.log('✅ Profile loaded:', result.data.username)
-        return result.data
+      if (data) {
+        console.log('✅ [Auth] Profile loaded successfully:', data.username)
+        console.log('🔵 [Auth] Profile data:', JSON.stringify(data, null, 2))
+        return data
       }
       
-      console.log('⚠️ Profile not found')
+      console.log('⚠️ [Auth] Profile not found for user:', userId)
       return null
     } catch (error) {
-      console.error('❌ Profile fetch exception:', error)
+      console.error('❌ [Auth] Profile fetch exception:', error)
+      
+      // Retry on exceptions
+      if (retryAttempt < 2) {
+        console.log('🔄 [Auth] Retrying after exception...')
+        await new Promise(resolve => setTimeout(resolve, 1000))
+        return fetchProfile(userId, retryAttempt + 1)
+      }
+      
       return null
     } finally {
-      isFetchingRef.current = false
+      if (retryAttempt === 0) {
+        isFetchingRef.current = false
+      }
     }
   }, [supabase])
 
