@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { useAuth } from '@/components/layout/AuthProvider'
 import { createClient } from '@/lib/supabase/client'
@@ -8,10 +8,10 @@ import { PostWithProfile } from '@/lib/supabase/types'
 import Navbar from '@/components/ui/Navbar'
 import ThreadCard from '@/components/ui/ThreadCard'
 import toast from 'react-hot-toast'
-import dynamicImport from 'next/dynamic' // ✅ FIX: Renamed to avoid conflict
+import dynamic from 'next/dynamic'
 
-// ✅ OPTIMIZATION: Lazy load CreatePost
-const CreatePost = dynamicImport(() => import('@/components/ui/CreatePost'), {
+// ✅ Lazy load CreatePost
+const CreatePost = dynamic(() => import('@/components/ui/CreatePost'), {
   loading: () => (
     <div className="bg-white rounded-xl shadow-md p-4 mb-6 h-32 animate-pulse">
       <div className="h-4 bg-gray-200 rounded w-3/4 mb-3"></div>
@@ -21,7 +21,7 @@ const CreatePost = dynamicImport(() => import('@/components/ui/CreatePost'), {
   ssr: false
 })
 
-const POSTS_PER_PAGE = 20 // ✅ OPTIMIZATION: Limit posts
+const POSTS_PER_PAGE = 20
 
 export default function HomePage() {
   const { user, profile, loading: authLoading } = useAuth()
@@ -29,6 +29,51 @@ export default function HomePage() {
   const [posts, setPosts] = useState<PostWithProfile[]>([])
   const [loading, setLoading] = useState(true)
   const supabase = createClient()
+
+  // ✅ OPTIMASI 1: Fetch posts dengan aggregated counts (1 query saja!)
+  const fetchPosts = useCallback(async () => {
+    if (!user) return
+    
+    try {
+      setLoading(true)
+      
+      // ✅ Single query dengan aggregate functions
+      const { data, error } = await supabase
+        .from('posts')
+        .select(`
+          *,
+          profiles (
+            id,
+            username,
+            full_name,
+            avatar_url,
+            bio
+          ),
+          likes:likes(count),
+          comments:comments(count)
+        `)
+        .order('created_at', { ascending: false })
+        .limit(POSTS_PER_PAGE)
+
+      if (error) throw error
+
+      // ✅ Transform data dengan counts yang sudah ada
+      const postsWithCounts = (data || []).map(post => ({
+        ...post,
+        _count: {
+          likes: post.likes?.[0]?.count || 0,
+          comments: post.comments?.[0]?.count || 0,
+        },
+      })) as PostWithProfile[]
+
+      setPosts(postsWithCounts)
+    } catch (error: any) {
+      console.error('❌ Error fetching posts:', error)
+      toast.error('Gagal memuat posts')
+    } finally {
+      setLoading(false)
+    }
+  }, [user, supabase])
 
   useEffect(() => {
     if (authLoading) return
@@ -46,75 +91,52 @@ export default function HomePage() {
 
     console.log('✅ Auth complete, fetching posts')
     fetchPosts()
-  }, [authLoading, user, profile, router])
+  }, [authLoading, user, profile, router, fetchPosts])
 
-  const fetchPosts = async () => {
-    if (!user) return
-    
-    try {
-      setLoading(true)
-      
-      // ✅ OPTIMIZATION: Limit query
-      const { data, error } = await supabase
-        .from('posts')
-        .select(`
-          *,
-          profiles (
-            id,
-            username,
-            full_name,
-            avatar_url,
-            bio
-          )
-        `)
-        .order('created_at', { ascending: false })
-        .limit(POSTS_PER_PAGE)
-
-      if (error) throw error
-
-      // ✅ OPTIMIZATION: Batch count queries
-      const postsWithCounts = await Promise.all(
-        (data || []).map(async (post) => {
-          const [{ count: likesCount }, { count: commentsCount }] = await Promise.all([
-            supabase.from('likes').select('*', { count: 'exact', head: true }).eq('post_id', post.id),
-            supabase.from('comments').select('*', { count: 'exact', head: true }).eq('post_id', post.id),
-          ])
-
-          return {
-            ...post,
-            _count: {
-              likes: likesCount || 0,
-              comments: commentsCount || 0,
-            },
-          } as PostWithProfile
-        })
-      )
-
-      setPosts(postsWithCounts)
-    } catch (error: any) {
-      console.error('❌ Error fetching posts:', error)
-      toast.error('Gagal memuat posts')
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  // ✅ OPTIMIZATION: Only subscribe to new posts
+  // ✅ OPTIMASI 2: Subscribe hanya ke INSERT dan prepend post baru (tidak fetch ulang!)
   useEffect(() => {
     if (!user || !profile) return
 
     const postsChannel = supabase
-      .channel('posts-new-only')
+      .channel('posts-insert-only')
       .on('postgres_changes', 
         { event: 'INSERT', schema: 'public', table: 'posts' }, 
-        fetchPosts
+        async (payload) => {
+          console.log('🆕 New post detected')
+          
+          // ✅ Fetch hanya post baru dengan profile-nya
+          const { data: newPostData } = await supabase
+            .from('posts')
+            .select(`
+              *,
+              profiles (
+                id,
+                username,
+                full_name,
+                avatar_url,
+                bio
+              )
+            `)
+            .eq('id', payload.new.id)
+            .single()
+
+          if (newPostData) {
+            const newPost = {
+              ...newPostData,
+              _count: { likes: 0, comments: 0 }
+            } as PostWithProfile
+            
+            // ✅ Prepend tanpa fetch ulang semua
+            setPosts(prev => [newPost, ...prev].slice(0, POSTS_PER_PAGE))
+          }
+        }
       )
       .subscribe()
 
     return () => {
       supabase.removeChannel(postsChannel)
     }
-  }, [user, profile])
+  }, [user, profile, supabase])
 
   if (authLoading) {
     return (
@@ -180,5 +202,4 @@ export default function HomePage() {
   )
 }
 
-// ✅ FIX: No conflict anymore
 export const dynamic = 'force-dynamic'
