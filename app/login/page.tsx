@@ -12,46 +12,30 @@ function LoginForm() {
   const [loading, setLoading] = useState(false)
   const [googleLoading, setGoogleLoading] = useState(false)
   const [mounted, setMounted] = useState(false)
-  const [checking, setChecking] = useState(true)
   const searchParams = useSearchParams()
   const router = useRouter()
-  
-  const [supabase] = useState(() => createClient())
+  const supabase = createClient()
 
   useEffect(() => {
     setMounted(true)
     
-    // ✅ Check if already logged in
-    const checkAuth = async () => {
-      try {
-        const { data: { session } } = await supabase.auth.getSession()
-        if (session?.user) {
-          console.log('✅ [Login] Already logged in, redirecting to home')
-          router.replace('/')
-          return
-        }
-      } catch (error) {
-        console.error('❌ [Login] Error checking session:', error)
-      } finally {
-        setChecking(false)
+    // Quick check - no waiting
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session?.user) {
+        router.replace('/')
       }
-    }
-    
-    checkAuth()
+    })
     
     const error = searchParams.get('error')
     const message = searchParams.get('message')
     
-    if (message) {
-      toast.success(decodeURIComponent(message), { duration: 5000 })
-    } else if (error) {
-      toast.error(decodeURIComponent(error), { duration: 5000 })
-    }
-  }, [searchParams, supabase, router])
+    if (message) toast.success(decodeURIComponent(message))
+    if (error) toast.error(decodeURIComponent(error))
+  }, [])
 
-  if (!mounted || checking) {
+  if (!mounted) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary-50 to-green-50">
+      <div className="min-h-screen flex items-center justify-center">
         <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary-500"></div>
       </div>
     )
@@ -62,38 +46,22 @@ function LoginForm() {
     setLoading(true)
 
     try {
-      console.log('🔐 [Login] Starting email login...')
-      
-      const { data, error } = await supabase.auth.signInWithPassword({
+      const { error } = await supabase.auth.signInWithPassword({
         email,
         password,
       })
 
       if (error) throw error
 
-      console.log('✅ [Login] Login successful:', data.user?.email)
-      toast.success('Login berhasil! Mengalihkan...')
-      
-      // ✅ Wait longer for cookies to be set and propagate
-      await new Promise(resolve => setTimeout(resolve, 1500))
-      
-      // ✅ Hard reload to ensure middleware sees new cookies
-      console.log('🔄 [Login] Redirecting to home...')
+      toast.success('Login berhasil!')
       window.location.href = '/'
       
-      // Keep loading state true (page will unload anyway)
-      
     } catch (error: any) {
-      console.error('❌ [Login] Error:', error)
+      let msg = 'Login gagal'
+      if (error.message.includes('Invalid login')) msg = 'Email atau password salah'
+      if (error.message.includes('Email not confirmed')) msg = 'Email belum diverifikasi'
       
-      let errorMessage = 'Login gagal'
-      if (error.message.includes('Invalid login credentials')) {
-        errorMessage = 'Email atau password salah'
-      } else if (error.message.includes('Email not confirmed')) {
-        errorMessage = 'Email belum diverifikasi'
-      }
-      
-      toast.error(errorMessage)
+      toast.error(msg)
       setLoading(false)
     }
   }
@@ -102,29 +70,12 @@ function LoginForm() {
     setGoogleLoading(true)
     
     try {
-      console.log('🔐 [Google Login] Starting...')
+      await supabase.auth.signOut({ scope: 'local' })
       
-      // ✅ Clear existing session first
-      try {
-        await supabase.auth.signOut({ scope: 'local' })
-        console.log('✅ [Google Login] Cleared existing session')
-      } catch (e) {
-        console.log('ℹ️ [Google Login] No existing session')
-      }
-      
-      await new Promise(resolve => setTimeout(resolve, 300))
-      
-      const origin = window.location.origin
-      const redirectTo = `${origin}/auth/callback`
-      
-      console.log('🌐 [Google Login] Origin:', origin)
-      console.log('↩️ [Google Login] Redirect URL:', redirectTo)
-      
-      const { data, error } = await supabase.auth.signInWithOAuth({
+      const { error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
-          redirectTo,
-          skipBrowserRedirect: false,
+          redirectTo: `${window.location.origin}/auth/callback`,
           queryParams: {
             access_type: 'offline',
             prompt: 'select_account',
@@ -132,35 +83,11 @@ function LoginForm() {
         },
       })
 
-      if (error) {
-        console.error('❌ [Google Login] Error:', error)
-        throw error
-      }
-      
-      console.log('✅ [Google Login] Redirect initiated')
-      
-      // ✅ OAuth will handle redirect, don't set loading to false
+      if (error) throw error
       
     } catch (error: any) {
-      console.error('❌ [Google Login] Failed:', error)
-      toast.error('Login dengan Google gagal. Silakan coba lagi.')
+      toast.error('Login dengan Google gagal')
       setGoogleLoading(false)
-    }
-  }
-
-  const clearCacheAndReload = async () => {
-    try {
-      console.log('🧹 [Clear] Clearing session...')
-      
-      await supabase.auth.signOut()
-      
-      toast.success('Cache berhasil dibersihkan!')
-      console.log('✅ [Clear] Session cleared')
-      
-      setTimeout(() => window.location.reload(), 1000)
-    } catch (e) {
-      console.error('❌ [Clear] Error:', e)
-      toast.error('Gagal membersihkan cache')
     }
   }
 
@@ -168,7 +95,6 @@ function LoginForm() {
     <div className="min-h-screen flex items-center justify-center px-4 bg-gradient-to-br from-primary-50 to-green-50">
       <div className="max-w-md w-full">
         <div className="bg-white rounded-2xl shadow-xl p-8">
-          {/* Header */}
           <div className="text-center mb-8">
             <div className="flex justify-center mb-4">
               <div className="w-16 h-16 bg-gradient-to-br from-primary-500 to-green-600 rounded-full flex items-center justify-center shadow-lg">
@@ -179,7 +105,6 @@ function LoginForm() {
             <p className="text-gray-600">Masuk ke akun Anda</p>
           </div>
 
-          {/* Email Login Form */}
           <form onSubmit={handleEmailLogin} className="space-y-4 mb-6">
             <div>
               <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-2">
@@ -216,23 +141,12 @@ function LoginForm() {
             <button
               type="submit"
               disabled={loading || googleLoading}
-              className="w-full py-3 px-4 bg-primary-500 text-white rounded-lg font-medium hover:bg-primary-600 disabled:opacity-50 disabled:cursor-not-allowed transition-all transform hover:scale-[1.02] active:scale-[0.98]"
+              className="w-full py-3 px-4 bg-primary-500 text-white rounded-lg font-medium hover:bg-primary-600 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
             >
-              {loading ? (
-                <span className="flex items-center justify-center">
-                  <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" fill="none" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"/>
-                  </svg>
-                  Memproses...
-                </span>
-              ) : (
-                'Masuk dengan Email'
-              )}
+              {loading ? 'Memproses...' : 'Masuk dengan Email'}
             </button>
           </form>
 
-          {/* Divider */}
           <div className="relative mb-6">
             <div className="absolute inset-0 flex items-center">
               <div className="w-full border-t border-gray-300"></div>
@@ -242,19 +156,18 @@ function LoginForm() {
             </div>
           </div>
 
-          {/* Google Login */}
           <button
             onClick={handleGoogleLogin}
             disabled={loading || googleLoading}
-            className="w-full py-3 px-4 border-2 border-gray-300 rounded-lg font-medium hover:bg-gray-50 transition-all flex items-center justify-center space-x-3 disabled:opacity-50 disabled:cursor-not-allowed transform hover:scale-[1.02] active:scale-[0.98]"
+            className="w-full py-3 px-4 border-2 border-gray-300 rounded-lg font-medium hover:bg-gray-50 transition-all flex items-center justify-center space-x-3 disabled:opacity-50"
           >
             {googleLoading ? (
               <>
-                <svg className="animate-spin h-5 w-5 text-gray-600" fill="none" viewBox="0 0 24 24">
+                <svg className="animate-spin h-5 w-5" fill="none" viewBox="0 0 24 24">
                   <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"/>
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
                 </svg>
-                <span className="text-gray-700">Menghubungkan...</span>
+                <span>Menghubungkan...</span>
               </>
             ) : (
               <>
@@ -269,30 +182,11 @@ function LoginForm() {
             )}
           </button>
 
-          {/* Troubleshooting */}
-          <div className="mt-6 text-center">
-            <button
-              onClick={clearCacheAndReload}
-              className="text-sm text-gray-500 hover:text-primary-600 underline transition-colors"
-              disabled={loading || googleLoading}
-            >
-              Mengalami masalah? Bersihkan cache
-            </button>
-          </div>
-
-          {/* Register Link */}
           <p className="text-center text-sm text-gray-600 mt-6">
             Belum punya akun?{' '}
-            <Link href="/register" className="font-medium text-primary-600 hover:text-primary-500 transition-colors">
+            <Link href="/register" className="font-medium text-primary-600 hover:text-primary-500">
               Daftar sekarang
             </Link>
-          </p>
-        </div>
-
-        {/* Note */}
-        <div className="mt-6 text-center">
-          <p className="text-xs text-gray-400">
-            🔐 Menggunakan cookie-based authentication
           </p>
         </div>
       </div>
@@ -303,11 +197,8 @@ function LoginForm() {
 export default function LoginPage() {
   return (
     <Suspense fallback={
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary-50 to-green-50">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-16 w-16 border-t-2 border-b-2 border-primary-500 mx-auto mb-4"></div>
-          <p className="text-gray-600 font-medium">Memuat...</p>
-        </div>
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary-500"></div>
       </div>
     }>
       <LoginForm />
