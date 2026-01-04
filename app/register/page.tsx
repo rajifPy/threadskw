@@ -16,7 +16,6 @@ export default function RegisterPage() {
   const [mounted, setMounted] = useState(false)
   const router = useRouter()
 
-  // Initialize Supabase client only on mount (client-side)
   const [supabase] = useState(() => createClient())
 
   useEffect(() => {
@@ -26,8 +25,8 @@ export default function RegisterPage() {
       try {
         const { data: { session } } = await supabase.auth.getSession()
         if (session?.user) {
-          console.log('✅ [Register] Already logged in, redirecting to home...')
-          window.location.href = '/'
+          console.log('✅ [Register] Already logged in, redirecting...')
+          router.push('/')
           return
         }
       } catch (error) {
@@ -38,7 +37,7 @@ export default function RegisterPage() {
     }
     
     checkSession()
-  }, [supabase])
+  }, [supabase, router])
 
   if (!mounted || checking) {
     return (
@@ -60,6 +59,7 @@ export default function RegisterPage() {
         return
       }
 
+      // Check if username is taken
       const { data: existingUser } = await supabase
         .from('profiles')
         .select('username')
@@ -76,7 +76,6 @@ export default function RegisterPage() {
       const redirectTo = `${origin}/auth/callback`
 
       console.log('[Register] Starting registration...')
-      console.log('[Register] Redirect URL:', redirectTo)
 
       const { data: authData, error: authError } = await supabase.auth.signUp({
         email,
@@ -109,8 +108,10 @@ export default function RegisterPage() {
         if (isAutoConfirmed) {
           console.log('[Register] Auto-confirmed, creating profile...')
           
-          await new Promise(resolve => setTimeout(resolve, 2000))
+          // ✅ Wait a bit for database triggers to complete
+          await new Promise(resolve => setTimeout(resolve, 1500))
           
+          // ✅ Check if profile exists, create if not
           const { data: profile } = await supabase
             .from('profiles')
             .select('*')
@@ -118,6 +119,7 @@ export default function RegisterPage() {
             .maybeSingle()
 
           if (!profile) {
+            console.log('[Register] Creating profile...')
             const { error: insertError } = await supabase
               .from('profiles')
               .insert({
@@ -128,12 +130,17 @@ export default function RegisterPage() {
 
             if (insertError) {
               console.error('[Register] Profile creation error:', insertError)
+              toast.error('Gagal membuat profile. Silakan gunakan halaman debug.')
+              setTimeout(() => router.push('/debug'), 2000)
+              return
             }
+            
+            console.log('[Register] Profile created successfully')
           }
 
           toast.success('Registrasi berhasil! Mengalihkan...')
           setTimeout(() => {
-            window.location.href = '/'
+            router.push('/')
           }, 1000)
         } else {
           toast.success(
@@ -169,8 +176,6 @@ export default function RegisterPage() {
       console.log('[Register] Starting Google OAuth...')
       const origin = window.location.origin
       const redirectTo = `${origin}/auth/callback`
-      
-      console.log('[Register] Redirect URL:', redirectTo)
       
       const { error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
