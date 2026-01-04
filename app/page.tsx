@@ -16,23 +16,23 @@ export default function HomePage() {
   const router = useRouter()
   const supabase = createClient()
 
-  // Redirect jika belum login
   useEffect(() => {
-    if (!authLoading && !user) {
-      console.log('❌ [Home] No user, redirecting to login')
-      router.push('/login')
+    if (!authLoading) {
+      if (!user) {
+        router.push('/login')
+      } else if (!profile) {
+        router.push('/debug')
+      }
     }
-  }, [user, authLoading, router])
+  }, [user, profile, authLoading, router])
 
   const fetchPosts = async () => {
     try {
-      setLoading(true)
-      
       const { data: postsData, error } = await supabase
         .from('posts')
         .select(`
           *,
-          profiles (
+          profiles!inner (
             id,
             username,
             full_name,
@@ -41,30 +41,52 @@ export default function HomePage() {
           )
         `)
         .order('created_at', { ascending: false })
+        .limit(20)
 
       if (error) throw error
 
-      // Fetch likes and comments counts
-      const postsWithCounts = await Promise.all(
-        (postsData || []).map(async (post) => {
-          const [{ count: likesCount }, { count: commentsCount }] = await Promise.all([
-            supabase.from('likes').select('*', { count: 'exact', head: true }).eq('post_id', post.id),
-            supabase.from('comments').select('*', { count: 'exact', head: true }).eq('post_id', post.id),
-          ])
+      // Fetch counts in single batch query
+      const postIds = postsData?.map(p => p.id) || []
+      
+      if (postIds.length === 0) {
+        setPosts([])
+        setLoading(false)
+        return
+      }
 
-          return {
-            ...post,
-            _count: {
-              likes: likesCount || 0,
-              comments: commentsCount || 0,
-            },
-          } as PostWithProfile
-        })
-      )
+      const [likesData, commentsData] = await Promise.all([
+        supabase
+          .from('likes')
+          .select('post_id')
+          .in('post_id', postIds),
+        supabase
+          .from('comments')
+          .select('post_id')
+          .in('post_id', postIds)
+      ])
+
+      // Count likes and comments per post
+      const likeCounts = (likesData.data || []).reduce((acc, like) => {
+        acc[like.post_id] = (acc[like.post_id] || 0) + 1
+        return acc
+      }, {} as Record<number, number>)
+
+      const commentCounts = (commentsData.data || []).reduce((acc, comment) => {
+        acc[comment.post_id] = (acc[comment.post_id] || 0) + 1
+        return acc
+      }, {} as Record<number, number>)
+
+      const postsWithCounts = postsData.map(post => ({
+        ...post,
+        _count: {
+          likes: likeCounts[post.id] || 0,
+          comments: commentCounts[post.id] || 0,
+        },
+      })) as PostWithProfile[]
 
       setPosts(postsWithCounts)
     } catch (error) {
-      console.error('❌ [Home] Error fetching posts:', error)
+      console.error('❌ Error fetching posts:', error)
     } finally {
       setLoading(false)
     }
@@ -72,16 +94,15 @@ export default function HomePage() {
 
   useEffect(() => {
     if (user && profile) {
-      console.log('✅ [Home] User authenticated, fetching posts')
       fetchPosts()
 
       // Real-time subscription
       const channel = supabase
-        .channel('posts-channel')
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'posts' }, () => {
-          console.log('🔄 [Home] Posts updated, refetching...')
-          fetchPosts()
-        })
+        .channel('posts-changes')
+        .on('postgres_changes', 
+          { event: '*', schema: 'public', table: 'posts' },
+          () => fetchPosts()
+        )
         .subscribe()
 
       return () => {
@@ -90,14 +111,10 @@ export default function HomePage() {
     }
   }, [user, profile])
 
-  // Show loading while checking auth
   if (authLoading || !user || !profile) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary-50 to-green-50">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-16 w-16 border-t-2 border-b-2 border-primary-500 mx-auto mb-4"></div>
-          <p className="text-gray-600 font-medium">Memuat...</p>
-        </div>
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary-500"></div>
       </div>
     )
   }
@@ -107,22 +124,19 @@ export default function HomePage() {
       <Navbar />
       
       <main className="max-w-2xl mx-auto px-4 py-6">
-        {/* Welcome Section */}
         <div className="bg-white rounded-xl shadow-md p-6 mb-6">
           <h1 className="text-2xl font-bold text-gray-900 mb-2">
             Selamat Datang, {profile.full_name || profile.username}! 👋
           </h1>
           <p className="text-gray-600">
-            Bagikan pendapat dan diskusikan ide-ide menarik dengan komunitas Arek Kost
+            Bagikan pendapat dan diskusikan ide-ide menarik dengan komunitas
           </p>
         </div>
 
-        {/* Create Post */}
         <CreatePost onPostCreated={fetchPosts} />
 
-        {/* Posts Feed */}
         <div className="mb-4">
-          <h2 className="text-xl font-bold text-gray-900 mb-4">Timeline</h2>
+          <h2 className="text-xl font-bold text-gray-900">Timeline</h2>
         </div>
 
         {loading ? (
@@ -138,8 +152,8 @@ export default function HomePage() {
             <p className="text-gray-400 text-sm">Jadilah yang pertama membagikan pendapat!</p>
           </div>
         ) : (
-          <div className="space-y-4">
-            {posts.map((post) => (
+          <div>
+            {posts.map(post => (
               <ThreadCard
                 key={post.id}
                 post={post}
