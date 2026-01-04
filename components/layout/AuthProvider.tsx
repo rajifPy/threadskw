@@ -41,23 +41,33 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     isFetchingRef.current = true
     
     try {
-      const { data, error } = await supabase
+      // ✅ Add timeout to prevent hanging
+      const timeoutPromise = new Promise<null>((_, reject) => 
+        setTimeout(() => reject(new Error('Profile fetch timeout')), 5000)
+      )
+      
+      const fetchPromise = supabase
         .from('profiles')
         .select('*')
         .eq('id', userId)
         .maybeSingle()
       
-      if (error && error.code !== 'PGRST116') {
-        console.error('❌ Profile error:', error)
+      const result = await Promise.race([fetchPromise, timeoutPromise])
+      
+      if (!result || 'error' in result) {
+        const error = 'error' in result ? result.error : null
+        if (error && error.code !== 'PGRST116') {
+          console.error('❌ Profile error:', error)
+        }
         return null
       }
       
-      if (data) {
-        console.log('✅ Profile loaded:', data.username)
-        return data
+      if (result.data) {
+        console.log('✅ Profile loaded:', result.data.username)
+        return result.data
       }
       
-      console.log('⚠️ Profile not found, redirect to /debug')
+      console.log('⚠️ Profile not found')
       return null
     } catch (error) {
       console.error('❌ Profile fetch exception:', error)
@@ -81,16 +91,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     const initAuth = async () => {
       try {
+        // ✅ Use getSession instead of getUser (faster)
         const { data: { session } } = await supabase.auth.getSession()
 
         if (session?.user && mounted) {
           console.log('✅ Session found:', session.user.email)
           setUser(session.user)
           
-          const profileData = await fetchProfile(session.user.id)
-          if (mounted) {
-            setProfile(profileData)
-          }
+          // ✅ Fetch profile in parallel, don't block UI
+          fetchProfile(session.user.id).then(profileData => {
+            if (mounted) {
+              setProfile(profileData)
+            }
+          })
         }
         
         if (mounted) {
@@ -115,8 +128,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
         if (event === 'SIGNED_IN' && session?.user) {
           setUser(session.user)
-          const profileData = await fetchProfile(session.user.id)
-          if (mounted) setProfile(profileData)
+          // ✅ Fetch profile asynchronously
+          fetchProfile(session.user.id).then(profileData => {
+            if (mounted) setProfile(profileData)
+          })
           
         } else if (event === 'SIGNED_OUT') {
           setUser(null)
