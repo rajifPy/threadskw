@@ -32,7 +32,7 @@ export async function GET(request: NextRequest) {
 
   const cookieStore = cookies()
   
-  // Create response that we'll use to set cookies
+  // ✅ Create response dengan redirect ke home
   const response = NextResponse.redirect(new URL('/', requestUrl.origin))
   
   const supabase = createServerClient(
@@ -45,7 +45,6 @@ export async function GET(request: NextRequest) {
         },
         set(name: string, value: string, options: CookieOptions) {
           try {
-            // Set on both cookieStore and response
             cookieStore.set({ 
               name, 
               value, 
@@ -153,25 +152,8 @@ export async function GET(request: NextRequest) {
               <script>
                 console.log('PKCE error detected, clearing all storage...');
                 
-                // Clear localStorage
-                try { localStorage.clear(); } catch(e) { console.error(e); }
-                
-                // Clear sessionStorage
-                try { sessionStorage.clear(); } catch(e) { console.error(e); }
-                
-                // Clear ALL cookies
-                try {
-                  document.cookie.split(";").forEach(function(c) { 
-                    const name = c.split("=")[0].trim();
-                    document.cookie = name + "=;expires=Thu, 01 Jan 1970 00:00:00 UTC;path=/";
-                    document.cookie = name + "=;expires=Thu, 01 Jan 1970 00:00:00 UTC;path=/;domain=" + window.location.hostname;
-                  });
-                } catch(e) { console.error(e); }
-                
-                console.log('Storage cleared, redirecting...');
-                
                 setTimeout(function() {
-                  window.location.href = '/login?message=' + encodeURIComponent('Cache berhasil dibersihkan. Silakan coba login kembali.');
+                  window.location.href = '/login?message=' + encodeURIComponent('Silakan coba login kembali.');
                 }, 2000);
               </script>
             </body>
@@ -206,7 +188,7 @@ export async function GET(request: NextRequest) {
 
     console.log('✅ [Callback] User authenticated:', user.email)
     
-    // Check/create profile with retries
+    // ✅ Check/create profile dengan retry yang lebih cepat
     let profile = null
     let attempts = 0
     const maxAttempts = 3
@@ -215,7 +197,8 @@ export async function GET(request: NextRequest) {
       attempts++
       
       if (attempts > 1) {
-        await new Promise(resolve => setTimeout(resolve, 1000))
+        // ✅ Shorter wait time
+        await new Promise(resolve => setTimeout(resolve, 500))
       }
       
       console.log(`🔍 [Callback] Checking profile... attempt ${attempts}/${maxAttempts}`)
@@ -259,7 +242,7 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // If still no profile after retries, redirect to debug page
+    // ✅ If still no profile, redirect to debug (bukan loop ke callback lagi)
     if (!profile) {
       console.warn('⚠️ [Callback] Profile not found after retries, redirecting to debug')
       return NextResponse.redirect(new URL('/debug', requestUrl.origin))
@@ -267,7 +250,7 @@ export async function GET(request: NextRequest) {
 
     console.log('🎉 [Callback] Success! Redirecting to home...')
     
-    // Set cache control headers
+    // ✅ Set headers untuk prevent caching
     response.headers.set('Cache-Control', 'no-store, no-cache, must-revalidate, private')
     response.headers.set('Pragma', 'no-cache')
     response.headers.set('Expires', '0')
