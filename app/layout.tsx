@@ -11,7 +11,6 @@ export const metadata: Metadata = {
   description: 'Platform diskusi ide, politik, dan bisnis untuk anak kost',
 }
 
-// IMPORTANT: Disable static optimization for auth pages
 export const dynamic = 'force-dynamic'
 export const revalidate = 0
 
@@ -21,11 +20,37 @@ export default function RootLayout({
   children: React.ReactNode
 }) {
   return (
-    <html lang="id">
-      <body className={`${inter.className} bg-primary-50`}>
+    <html lang="id" suppressHydrationWarning>
+      <head>
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `
+              (function() {
+                try {
+                  var theme = localStorage.getItem('theme');
+                  var prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+                  if (theme === 'dark' || (!theme && prefersDark)) {
+                    document.documentElement.classList.add('dark');
+                  }
+                } catch (e) {}
+              })();
+            `,
+          }}
+        />
+      </head>
+      <body className={`${inter.className} bg-primary-50 dark:bg-gray-900 transition-colors duration-300`}>
         <AuthProvider>
           {children}
-          <Toaster position="top-center" />
+          <Toaster 
+            position="top-center"
+            toastOptions={{
+              className: 'dark:bg-gray-800 dark:text-white',
+              style: {
+                background: 'var(--toast-bg, #fff)',
+                color: 'var(--toast-color, #000)',
+              },
+            }}
+          />
         </AuthProvider>
       </body>
     </html>
