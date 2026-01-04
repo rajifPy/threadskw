@@ -90,7 +90,6 @@ export default function ProfilePage() {
 
       if (postsError) throw postsError
 
-      // Fetch likes and comments counts for each post
       const postsWithCounts = await Promise.all(
         (postsData || []).map(async (post) => {
           const [{ count: likesCount }, { count: commentsCount }] = await Promise.all([
@@ -126,13 +125,11 @@ export default function ProfilePage() {
   const handleAvatarChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (file) {
-      // Validate file type
       if (!file.type.startsWith('image/')) {
         toast.error('File harus berupa gambar')
         return
       }
 
-      // Validate file size (max 2MB)
       if (file.size > 2 * 1024 * 1024) {
         toast.error('Ukuran gambar maksimal 2MB')
         return
@@ -152,25 +149,18 @@ export default function ProfilePage() {
       const fileName = `${user!.id}-avatar-${Date.now()}.${fileExt}`
       const filePath = `avatars/${fileName}`
 
-      console.log('📤 [Avatar] Uploading avatar:', filePath)
-
-      // Delete old avatar if exists and it's from our storage
       if (profile?.avatar_url && profile.avatar_url.includes('supabase.co/storage')) {
         try {
           const urlParts = profile.avatar_url.split('post-images/')
           if (urlParts.length > 1) {
             const oldPath = urlParts[1]
-            console.log('🗑️ [Avatar] Deleting old avatar:', oldPath)
-            await supabase.storage
-              .from('avatars')
-              .remove([oldPath])
+            await supabase.storage.from('avatars').remove([oldPath])
           }
         } catch (err) {
-          console.warn('⚠️ [Avatar] Could not delete old avatar:', err)
+          console.warn('⚠️ Could not delete old avatar:', err)
         }
       }
 
-      // Upload new avatar
       const { error: uploadError, data } = await supabase.storage
         .from('post-images')
         .upload(filePath, avatarFile, {
@@ -178,31 +168,16 @@ export default function ProfilePage() {
           upsert: false
         })
 
-      if (uploadError) {
-        console.error('❌ [Avatar] Upload error:', uploadError)
-        throw uploadError
-      }
-
-      console.log('✅ [Avatar] Upload successful:', data)
+      if (uploadError) throw uploadError
 
       const { data: { publicUrl } } = supabase.storage
         .from('post-images')
         .getPublicUrl(filePath)
 
-      console.log('🔗 [Avatar] Public URL:', publicUrl)
-
       return publicUrl
     } catch (error: any) {
-      console.error('❌ [Avatar] Upload failed:', error)
-      
-      if (error.message?.includes('Duplicate')) {
-        toast.error('File sudah ada, coba lagi')
-      } else if (error.message?.includes('size')) {
-        toast.error('Ukuran file terlalu besar')
-      } else {
-        toast.error('Gagal upload avatar: ' + (error.message || 'Unknown error'))
-      }
-      
+      console.error('❌ Upload failed:', error)
+      toast.error('Gagal upload avatar: ' + (error.message || 'Unknown error'))
       return null
     } finally {
       setUploading(false)
@@ -213,14 +188,13 @@ export default function ProfilePage() {
     e.preventDefault()
 
     try {
-      // Upload avatar if new file selected
       let avatarUrl = editForm.avatar_url
       if (avatarFile) {
         const uploadedUrl = await uploadAvatar()
         if (uploadedUrl) {
           avatarUrl = uploadedUrl
         } else {
-          return // Upload failed
+          return
         }
       }
 
@@ -256,7 +230,7 @@ export default function ProfilePage() {
 
   if (authLoading || loading || !user) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary-50 to-green-50 dark:from-gray-900 dark:to-slate-900">
         <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary-500"></div>
       </div>
     )
@@ -267,11 +241,11 @@ export default function ProfilePage() {
   }
 
   return (
-    <div className="min-h-screen">
+    <div className="min-h-screen bg-gradient-to-br from-primary-50 to-green-50 dark:from-gray-900 dark:to-slate-900 transition-colors duration-300">
       <Navbar />
       
       <main className="max-w-2xl mx-auto px-4 py-6">
-        <div className="bg-white rounded-xl shadow-md p-6 mb-6">
+        <div className="bg-white dark:bg-gray-800 rounded-xl shadow-md p-6 mb-6 transition-colors duration-300">
           <div className="flex items-start justify-between mb-4">
             <div className="flex items-center space-x-4">
               <div className="relative w-20 h-20 rounded-full overflow-hidden">
@@ -283,17 +257,17 @@ export default function ProfilePage() {
                 />
               </div>
               <div>
-                <h1 className="text-2xl font-bold text-gray-900">
+                <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
                   {profile.full_name || profile.username}
                 </h1>
-                <p className="text-gray-500">@{profile.username}</p>
+                <p className="text-gray-500 dark:text-gray-400">@{profile.username}</p>
               </div>
             </div>
 
             {isOwnProfile && !isEditing && (
               <button
                 onClick={() => setIsEditing(true)}
-                className="px-4 py-2 border border-primary-500 text-primary-500 rounded-lg font-medium hover:bg-primary-50 transition-colors"
+                className="px-4 py-2 border border-primary-500 text-primary-500 dark:text-primary-400 rounded-lg font-medium hover:bg-primary-50 dark:hover:bg-primary-900/20 transition-colors"
               >
                 Edit Profile
               </button>
@@ -302,13 +276,12 @@ export default function ProfilePage() {
 
           {isEditing ? (
             <form onSubmit={handleUpdateProfile} className="space-y-4 mt-4">
-              {/* Avatar Upload */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                   Foto Profil
                 </label>
                 <div className="flex items-center space-x-4">
-                  <div className="relative w-24 h-24 rounded-full overflow-hidden border-2 border-gray-200">
+                  <div className="relative w-24 h-24 rounded-full overflow-hidden border-2 border-gray-200 dark:border-gray-600">
                     <Image
                       src={avatarPreview || generateAvatarUrl(profile.username)}
                       alt="Avatar preview"
@@ -327,7 +300,7 @@ export default function ProfilePage() {
                     />
                     <label
                       htmlFor="avatar-upload"
-                      className="inline-block px-4 py-2 bg-gray-100 text-gray-700 rounded-lg font-medium hover:bg-gray-200 transition-colors cursor-pointer"
+                      className="inline-block px-4 py-2 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg font-medium hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors cursor-pointer"
                     >
                       Pilih Gambar
                     </label>
@@ -335,12 +308,12 @@ export default function ProfilePage() {
                       <button
                         type="button"
                         onClick={removeAvatar}
-                        className="ml-2 px-4 py-2 bg-red-100 text-red-600 rounded-lg font-medium hover:bg-red-200 transition-colors"
+                        className="ml-2 px-4 py-2 bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400 rounded-lg font-medium hover:bg-red-200 dark:hover:bg-red-900/50 transition-colors"
                       >
                         Hapus
                       </button>
                     )}
-                    <p className="text-xs text-gray-500 mt-2">
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
                       JPG, PNG, atau GIF. Maksimal 2MB.
                     </p>
                   </div>
@@ -348,29 +321,29 @@ export default function ProfilePage() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                   Nama Lengkap
                 </label>
                 <input
                   type="text"
                   value={editForm.full_name}
                   onChange={(e) => setEditForm({ ...editForm, full_name: e.target.value })}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none"
+                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none"
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                   Bio
                 </label>
                 <textarea
                   value={editForm.bio}
                   onChange={(e) => setEditForm({ ...editForm, bio: e.target.value })}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none resize-none"
+                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none resize-none"
                   rows={3}
                   maxLength={150}
                 />
-                <p className="text-xs text-gray-500 mt-1">{editForm.bio.length}/150</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">{editForm.bio.length}/150</p>
               </div>
 
               <div className="flex space-x-3">
@@ -388,7 +361,7 @@ export default function ProfilePage() {
                     setAvatarFile(null)
                     setAvatarPreview(profile.avatar_url || '')
                   }}
-                  className="flex-1 py-2 border border-gray-300 text-gray-700 rounded-lg font-medium hover:bg-gray-50 transition-colors"
+                  className="flex-1 py-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg font-medium hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
                 >
                   Batal
                 </button>
@@ -397,13 +370,13 @@ export default function ProfilePage() {
           ) : (
             <>
               {profile.bio && (
-                <p className="text-gray-700 mt-4">{profile.bio}</p>
+                <p className="text-gray-700 dark:text-gray-300 mt-4">{profile.bio}</p>
               )}
 
-              <div className="flex items-center space-x-6 mt-6 pt-4 border-t border-gray-100">
+              <div className="flex items-center space-x-6 mt-6 pt-4 border-t border-gray-100 dark:border-gray-700">
                 <div>
-                  <span className="font-bold text-gray-900">{posts.length}</span>
-                  <span className="text-gray-500 ml-1">Threads</span>
+                  <span className="font-bold text-gray-900 dark:text-white">{posts.length}</span>
+                  <span className="text-gray-500 dark:text-gray-400 ml-1">Threads</span>
                 </div>
               </div>
             </>
@@ -411,12 +384,12 @@ export default function ProfilePage() {
         </div>
 
         <div className="mb-4">
-          <h2 className="text-xl font-bold text-gray-900">Threads</h2>
+          <h2 className="text-xl font-bold text-gray-900 dark:text-white">Threads</h2>
         </div>
 
         {posts.length === 0 ? (
-          <div className="bg-white rounded-xl shadow-md p-12 text-center">
-            <p className="text-gray-500">Belum ada post</p>
+          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-md p-12 text-center transition-colors duration-300">
+            <p className="text-gray-500 dark:text-gray-400">Belum ada post</p>
           </div>
         ) : (
           <div>
@@ -434,4 +407,5 @@ export default function ProfilePage() {
     </div>
   )
 }
+
 export const dynamic = 'force-dynamic'
