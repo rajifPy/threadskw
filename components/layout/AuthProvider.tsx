@@ -31,10 +31,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   
   const isFetchingRef = useRef(false)
   const profileCacheRef = useRef<Map<string, Profile>>(new Map())
-  const currentUserIdRef = useRef<string | null>(null) // ✅ Track current user
+  const currentUserIdRef = useRef<string | null>(null)
+  const initCompleteRef = useRef(false)
 
   const fetchProfile = useCallback(async (userId: string, userMetadata?: any): Promise<Profile | null> => {
-    // ✅ FIX: Clear cache jika user berubah (account switch)
+    // Clear cache jika user berubah
     if (currentUserIdRef.current && currentUserIdRef.current !== userId) {
       console.log('🔄 [Auth] User changed, clearing profile cache')
       profileCacheRef.current.clear()
@@ -43,20 +44,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     // Check cache first
     if (profileCacheRef.current.has(userId)) {
-      console.log('✅ Using cached profile')
+      console.log('✅ [Auth] Using cached profile')
       return profileCacheRef.current.get(userId)!
     }
 
     // Prevent duplicate concurrent fetches
     if (isFetchingRef.current) {
-      console.log('⏳ Profile fetch already in progress, waiting...')
-      await new Promise(resolve => setTimeout(resolve, 500))
+      console.log('⏳ [Auth] Profile fetch already in progress, waiting...')
+      await new Promise(resolve => setTimeout(resolve, 1000))
       return profileCacheRef.current.get(userId) || null
     }
 
     isFetchingRef.current = true
     
     try {
+      console.log('🔍 [Auth] Fetching profile for user:', userId)
+      
       const { data, error } = await supabase
         .from('profiles')
         .select('*')
@@ -64,53 +67,52 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         .maybeSingle()
       
       if (error && error.code !== 'PGRST116') {
-        console.error('❌ Profile fetch error:', error)
+        console.error('❌ [Auth] Profile fetch error:', error)
         return null
       }
       
       if (data) {
-        console.log('✅ Profile found:', data.username)
+        console.log('✅ [Auth] Profile found:', data.username)
         profileCacheRef.current.set(userId, data)
         return data
       }
       
       // Create profile if not exists
-      if (userMetadata) {
-        console.log('📝 Creating profile...')
-        
-        const username = (
-          userMetadata.username ||
-          userMetadata.preferred_username ||
-          userMetadata.name?.toLowerCase().replace(/[^a-z0-9_]/g, '_') ||
-          userMetadata.email?.split('@')[0] ||
-          `user_${userId.substring(0, 8)}`
-        ).toLowerCase().replace(/[^a-z0-9_]/g, '_').substring(0, 30)
+      console.log('📝 [Auth] Profile not found, creating...')
+      
+      const username = (
+        userMetadata?.username ||
+        userMetadata?.preferred_username ||
+        userMetadata?.name?.toLowerCase().replace(/[^a-z0-9_]/g, '_') ||
+        userMetadata?.email?.split('@')[0] ||
+        `user_${userId.substring(0, 8)}`
+      ).toLowerCase().replace(/[^a-z0-9_]/g, '_').substring(0, 30)
 
-        const { data: newProfile, error: insertError } = await supabase
-          .from('profiles')
-          .insert({
-            id: userId,
-            username: username,
-            full_name: userMetadata.full_name || userMetadata.name || null,
-            avatar_url: userMetadata.avatar_url || userMetadata.picture || null,
-          })
-          .select()
-          .single()
+      const { data: newProfile, error: insertError } = await supabase
+        .from('profiles')
+        .insert({
+          id: userId,
+          username: username,
+          full_name: userMetadata?.full_name || userMetadata?.name || null,
+          avatar_url: userMetadata?.avatar_url || userMetadata?.picture || null,
+        })
+        .select()
+        .single()
 
-        if (insertError) {
-          console.error('❌ Profile creation error:', insertError)
-          return null
-        }
+      if (insertError) {
+        console.error('❌ [Auth] Profile creation error:', insertError)
+        return null
+      }
 
-        if (newProfile) {
-          profileCacheRef.current.set(userId, newProfile as Profile)
-          return newProfile as Profile
-        }
+      if (newProfile) {
+        console.log('✅ [Auth] Profile created:', newProfile.username)
+        profileCacheRef.current.set(userId, newProfile as Profile)
+        return newProfile as Profile
       }
       
       return null
     } catch (error) {
-      console.error('❌ Exception in fetchProfile:', error)
+      console.error('❌ [Auth] Exception in fetchProfile:', error)
       return null
     } finally {
       isFetchingRef.current = false
@@ -119,6 +121,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const refreshProfile = useCallback(async () => {
     if (user) {
+      console.log('🔄 [Auth] Refreshing profile...')
       profileCacheRef.current.delete(user.id)
       const profileData = await fetchProfile(user.id, user.user_metadata)
       setProfile(profileData)
@@ -127,13 +130,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     let mounted = true
-    let initComplete = false
 
     const initAuth = async () => {
-      if (initComplete) return
+      if (initCompleteRef.current) {
+        console.log('ℹ️ [Auth] Init already complete, skipping')
+        return
+      }
       
       try {
-        console.log('🔐 [Auth] Initializing...')
+        console.log('🔐 [Auth] Initializing auth...')
         
         const { data: { session }, error: sessionError } = await supabase.auth.getSession()
         
@@ -154,16 +159,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           
           if (mounted) {
             setUser(session.user)
+            
+            // Fetch profile
             const profileData = await fetchProfile(session.user.id, session.user.user_metadata)
-            setProfile(profileData)
+            
+            if (mounted) {
+              setProfile(profileData)
+              console.log('✅ [Auth] Auth initialization complete')
+            }
           }
         } else {
-          console.log('ℹ️ [Auth] No session')
+          console.log('ℹ️ [Auth] No session found')
         }
         
         if (mounted) {
           setLoading(false)
-          initComplete = true
+          initCompleteRef.current = true
         }
       } catch (error) {
         console.error('❌ [Auth] Init error:', error)
@@ -175,44 +186,44 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     }
 
-    let authChangeTimeout: NodeJS.Timeout
-    
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
-        console.log('🔄 [Auth] Event:', event)
+        console.log('🔄 [Auth] Auth state changed:', event)
         
         if (!mounted) return
 
-        clearTimeout(authChangeTimeout)
-        authChangeTimeout = setTimeout(async () => {
-          if (event === 'SIGNED_IN' && session?.user) {
-            console.log('✅ [Auth] User signed in:', session.user.email)
-            
-            // ✅ FIX: Force clear cache on sign in untuk account switch
-            if (currentUserIdRef.current && currentUserIdRef.current !== session.user.id) {
-              console.log('🔄 [Auth] Different user detected, clearing all cache')
-              profileCacheRef.current.clear()
-            }
-            
-            setUser(session.user)
-            setLoading(true) // ✅ Show loading saat fetch profile baru
-            const profileData = await fetchProfile(session.user.id, session.user.user_metadata)
+        if (event === 'SIGNED_IN' && session?.user) {
+          console.log('✅ [Auth] User signed in:', session.user.email)
+          
+          // Clear cache on account switch
+          if (currentUserIdRef.current && currentUserIdRef.current !== session.user.id) {
+            console.log('🔄 [Auth] Different user detected, clearing cache')
+            profileCacheRef.current.clear()
+          }
+          
+          setUser(session.user)
+          setLoading(true)
+          
+          const profileData = await fetchProfile(session.user.id, session.user.user_metadata)
+          
+          if (mounted) {
             setProfile(profileData)
             setLoading(false)
-            
-          } else if (event === 'SIGNED_OUT') {
-            console.log('👋 [Auth] User signed out')
-            profileCacheRef.current.clear()
-            currentUserIdRef.current = null // ✅ Reset user ID tracking
-            setUser(null)
-            setProfile(null)
-            setLoading(false)
-            
-          } else if (event === 'TOKEN_REFRESHED' && session?.user) {
-            console.log('🔄 [Auth] Token refreshed')
-            setUser(session.user)
           }
-        }, 100)
+          
+        } else if (event === 'SIGNED_OUT') {
+          console.log('👋 [Auth] User signed out')
+          profileCacheRef.current.clear()
+          currentUserIdRef.current = null
+          initCompleteRef.current = false
+          setUser(null)
+          setProfile(null)
+          setLoading(false)
+          
+        } else if (event === 'TOKEN_REFRESHED' && session?.user) {
+          console.log('🔄 [Auth] Token refreshed')
+          setUser(session.user)
+        }
       }
     )
 
@@ -220,7 +231,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     return () => {
       mounted = false
-      clearTimeout(authChangeTimeout)
       subscription.unsubscribe()
     }
   }, [supabase, fetchProfile])
@@ -230,9 +240,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       console.log('👋 [Auth] Signing out...')
       await supabase.auth.signOut()
       
-      // ✅ FIX: Clear everything on sign out
+      // Clear everything
       profileCacheRef.current.clear()
       currentUserIdRef.current = null
+      initCompleteRef.current = false
       setUser(null)
       setProfile(null)
       
