@@ -4,13 +4,14 @@ import { NextResponse, type NextRequest } from 'next/server'
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
 
-  // ✅ OPTIMASI 1: Skip auth check untuk static files dan API routes
-  if (
+  // ✅ OPTIMASI 1: Skip middleware untuk static files
+  const shouldSkip = 
     pathname.startsWith('/_next') ||
     pathname.startsWith('/static') ||
     pathname.startsWith('/api') ||
-    pathname.includes('.')
-  ) {
+    pathname.match(/\.(png|jpg|jpeg|gif|webp|svg|ico|css|js)$/i)
+
+  if (shouldSkip) {
     return NextResponse.next()
   }
 
@@ -91,9 +92,9 @@ export async function middleware(request: NextRequest) {
   return response
 }
 
+// ✅ Simplified matcher - hanya exclude _next folder
 export const config = {
   matcher: [
-    // ✅ OPTIMASI 4: More specific matcher to exclude static files
-    '/((?!_next/static|_next/image|_next/webpack|favicon.ico|icon.svg|.*\\.(svg|png|jpg|jpeg|gif|webp|css|js|ico)).*)',
+    '/((?!_next/static|_next/image|favicon.ico).*)',
   ],
 }
