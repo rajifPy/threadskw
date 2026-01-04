@@ -90,39 +90,45 @@ export async function GET(request: NextRequest) {
 
     console.log('✅ User authenticated:', user.email)
     
-    // Check profile - single query, no retries
-    const { data: profile } = await supabase
+    // ✅ OPTIMIZED: Defer profile creation to AuthProvider
+    // Only create profile if it doesn't exist, but don't wait for it
+    supabase
       .from('profiles')
-      .select('*')
+      .select('id')
       .eq('id', user.id)
       .maybeSingle()
-
-    if (!profile) {
-      console.log('⚠️ Profile not found, creating...')
-      
-      const username = (
-        user.user_metadata?.username || 
-        user.user_metadata?.preferred_username ||
-        user.user_metadata?.name?.toLowerCase().replace(/[^a-z0-9_]/g, '_') ||
-        user.email?.split('@')[0] || 
-        `user_${user.id.substring(0, 8)}`
-      ).toLowerCase().replace(/[^a-z0-9_]/g, '_')
-      
-      await supabase.from('profiles').insert({
-        id: user.id,
-        username: username,
-        full_name: user.user_metadata?.full_name || user.user_metadata?.name || null,
-        avatar_url: user.user_metadata?.avatar_url || user.user_metadata?.picture || null,
+      .then(({ data: profile }) => {
+        if (!profile) {
+          console.log('⚠️ Profile not found, creating in background...')
+          
+          const username = (
+            user.user_metadata?.username || 
+            user.user_metadata?.preferred_username ||
+            user.user_metadata?.name?.toLowerCase().replace(/[^a-z0-9_]/g, '_') ||
+            user.email?.split('@')[0] || 
+            `user_${user.id.substring(0, 8)}`
+          ).toLowerCase().replace(/[^a-z0-9_]/g, '_')
+          
+          supabase.from('profiles').insert({
+            id: user.id,
+            username: username,
+            full_name: user.user_metadata?.full_name || user.user_metadata?.name || null,
+            avatar_url: user.user_metadata?.avatar_url || user.user_metadata?.picture || null,
+          }).then(() => {
+            console.log('✅ Profile created in background')
+          }).catch(err => {
+            console.error('❌ Profile creation error:', err)
+          })
+        }
       })
-    }
 
-    // Simple HTML redirect
+    // ✅ Redirect immediately without waiting for profile
     return new NextResponse(
       `<!DOCTYPE html>
       <html>
         <head>
           <title>Login Successful</title>
-          <meta http-equiv="refresh" content="1;url=/">
+          <meta http-equiv="refresh" content="0;url=/">
         </head>
         <body style="display:flex;align-items:center;justify-content:center;min-height:100vh;font-family:system-ui;">
           <div style="text-align:center;">
