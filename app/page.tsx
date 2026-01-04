@@ -8,6 +8,7 @@ import { PostWithProfile } from '@/lib/supabase/types'
 import Navbar from '@/components/ui/Navbar'
 import CreatePost from '@/components/ui/CreatePost'
 import ThreadCard from '@/components/ui/ThreadCard'
+import LoadingCube from '@/components/ui/LoadingCube' // ✅ TAMBAH IMPORT INI
 
 export default function HomePage() {
   const { user, profile, loading: authLoading, refreshProfile } = useAuth()
@@ -29,14 +30,13 @@ export default function HomePage() {
       } else if (!profile) {
         console.log('⚠️ [HomePage] User exists but no profile')
         
-        // Try to refresh profile a few times before giving up
         if (retryCount < 3) {
           console.log(`🔄 [HomePage] Attempting to refresh profile (attempt ${retryCount + 1}/3)`)
           setTimeout(() => {
             refreshProfile().then(() => {
               setRetryCount(prev => prev + 1)
             })
-          }, 1000 * (retryCount + 1)) // Exponential backoff: 1s, 2s, 3s
+          }, 1000 * (retryCount + 1))
         } else {
           console.log('❌ [HomePage] Profile refresh failed after 3 attempts, redirecting to debug')
           router.push('/debug')
@@ -64,7 +64,6 @@ export default function HomePage() {
 
       if (error) throw error
 
-      // Fetch counts in single batch query
       const postIds = postsData?.map(p => p.id) || []
       
       if (postIds.length === 0) {
@@ -84,7 +83,6 @@ export default function HomePage() {
           .in('post_id', postIds)
       ])
 
-      // Count likes and comments per post
       const likeCounts = (likesData.data || []).reduce((acc, like) => {
         acc[like.post_id] = (acc[like.post_id] || 0) + 1
         return acc
@@ -116,7 +114,6 @@ export default function HomePage() {
       console.log('✅ [HomePage] Both user and profile available, fetching posts')
       fetchPosts()
 
-      // Real-time subscription
       const channel = supabase
         .channel('posts-changes')
         .on('postgres_changes', 
@@ -131,29 +128,14 @@ export default function HomePage() {
     }
   }, [user, profile])
 
-  // Show loading state
+  // ✅ GANTI: Show loading state dengan LoadingCube
   if (authLoading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary-500 mx-auto mb-4"></div>
-          <p className="text-gray-600">Loading authentication...</p>
-        </div>
-      </div>
-    )
+    return <LoadingCube text="Loading authentication..." />
   }
 
-  // Show retry state
+  // ✅ GANTI: Show retry state dengan LoadingCube
   if (user && !profile && retryCount < 3) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary-500 mx-auto mb-4"></div>
-          <p className="text-gray-600">Loading profile...</p>
-          <p className="text-gray-400 text-sm mt-2">Attempt {retryCount + 1} of 3</p>
-        </div>
-      </div>
-    )
+    return <LoadingCube text={`Loading profile... Attempt ${retryCount + 1} of 3`} />
   }
 
   // Don't render if no user or profile
@@ -182,9 +164,7 @@ export default function HomePage() {
         </div>
 
         {loading ? (
-          <div className="flex justify-center py-12">
-            <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary-500"></div>
-          </div>
+          <LoadingCube text="Loading posts..." fullScreen={false} />
         ) : posts.length === 0 ? (
           <div className="bg-white rounded-xl shadow-md p-12 text-center">
             <svg className="w-16 h-16 text-gray-400 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
