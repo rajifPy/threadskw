@@ -162,7 +162,7 @@ export default function ProfilePage() {
             const oldPath = urlParts[1]
             console.log('🗑️ [Avatar] Deleting old avatar:', oldPath)
             await supabase.storage
-              .from('post-images')
+              .from('avatars')
               .remove([oldPath])
           }
         } catch (err) {
