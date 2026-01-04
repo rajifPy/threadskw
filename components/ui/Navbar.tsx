@@ -6,10 +6,12 @@ import { useAuth } from '@/components/layout/AuthProvider'
 import { useState, useRef, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { generateAvatarUrl } from '@/utils/helpers'
+import LogoutAnimation from './LogoutAnimation' // ✅ IMPORT ANIMASI LOGOUT
 
 export default function Navbar() {
   const { user, profile, signOut } = useAuth()
   const [showDropdown, setShowDropdown] = useState(false)
+  const [isLoggingOut, setIsLoggingOut] = useState(false) // ✅ STATE LOGOUT
   const dropdownRef = useRef<HTMLDivElement>(null)
   const router = useRouter()
 
@@ -25,8 +27,26 @@ export default function Navbar() {
   }, [])
 
   const handleSignOut = async () => {
+    setShowDropdown(false)
+    setIsLoggingOut(true) // ✅ TAMPILKAN ANIMASI
+    
+    // Animasi akan berjalan 3 detik, lalu redirect
+    // LogoutAnimation component akan handle timing
+  }
+
+  const completeLogout = async () => {
     await signOut()
     router.push('/login')
+  }
+
+  // ✅ TAMPILKAN ANIMASI LOGOUT
+  if (isLoggingOut) {
+    return (
+      <LogoutAnimation 
+        text="See you soon! 👋"
+        onComplete={completeLogout}
+      />
+    )
   }
 
   return (
