@@ -4,7 +4,7 @@ import { NextResponse, type NextRequest } from 'next/server'
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
 
-  // ✅ OPTIMASI 1: Skip middleware untuk static files
+  // ✅ Skip middleware untuk static files
   const shouldSkip = 
     pathname.startsWith('/_next') ||
     pathname.startsWith('/static') ||
@@ -49,35 +49,37 @@ export async function middleware(request: NextRequest) {
     }
   )
 
-  // Public routes
-  const publicRoutes = ['/login', '/register', '/auth/callback', '/test-auth']
+  // ✅ FIX: Public routes yang tidak perlu auth check
+  const publicRoutes = ['/login', '/register', '/auth/callback', '/test-auth', '/debug']
   const isPublicRoute = publicRoutes.some(route => pathname.startsWith(route))
 
-  // ✅ OPTIMASI 2: Skip auth check untuk public routes
   if (isPublicRoute) {
+    // ✅ Tapi redirect ke home jika sudah login (kecuali callback & debug)
+    if (pathname === '/login' || pathname === '/register') {
+      try {
+        const { data: { user } } = await supabase.auth.getUser()
+        
+        if (user) {
+          console.log(`[Middleware] User logged in, redirecting ${pathname} -> /`)
+          return NextResponse.redirect(new URL('/', request.url))
+        }
+      } catch (error) {
+        // Ignore error, let them access login/register
+      }
+    }
+    
     return response
   }
 
   // Protected routes
-  const protectedRoutes = ['/', '/profile', '/post', '/debug']
+  const protectedRoutes = ['/', '/profile', '/post']
   const isProtectedRoute = protectedRoutes.some(route => 
     pathname === route || pathname.startsWith(route + '/')
   )
 
-  // ✅ OPTIMASI 3: Only check auth for protected routes
   if (isProtectedRoute) {
     try {
-      // ✅ Use getUser() with timeout
-      const timeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('Auth check timeout')), 3000)
-      )
-      
-      const authPromise = supabase.auth.getUser()
-      
-      const { data: { user }, error } = await Promise.race([
-        authPromise,
-        timeoutPromise
-      ]) as any
+      const { data: { user }, error } = await supabase.auth.getUser()
 
       if (error || !user) {
         console.log(`[Middleware] No user, redirecting ${pathname} -> /login`)
@@ -92,7 +94,7 @@ export async function middleware(request: NextRequest) {
   return response
 }
 
-// ✅ Simplified matcher - hanya exclude _next folder
+// ✅ Simplified matcher
 export const config = {
   matcher: [
     '/((?!_next/static|_next/image|favicon.ico).*)',
