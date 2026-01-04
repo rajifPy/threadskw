@@ -7,6 +7,7 @@ import { useState } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
 import { generateAvatarUrl } from '@/utils/helpers'
 import LogoutAnimation from './LogoutAnimation'
+import ThemeToggle from './ThemeToggle'
 
 export default function Navbar() {
   const { user, profile, signOut } = useAuth()
