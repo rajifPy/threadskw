@@ -86,6 +86,7 @@ export default function CreatePost({
     }
 
     setLoading(true)
+    const startTime = Date.now()
 
     try {
       let imageUrl = imagePreview
@@ -108,6 +109,13 @@ export default function CreatePost({
           .eq('id', postId)
 
         if (error) throw error
+        
+        // ✅ Ensure minimum 5 seconds delay
+        const elapsed = Date.now() - startTime
+        if (elapsed < 5000) {
+          await new Promise(resolve => setTimeout(resolve, 5000 - elapsed))
+        }
+        
         toast.success('Post berhasil diupdate!')
       } else {
         const { error } = await supabase
@@ -119,6 +127,13 @@ export default function CreatePost({
           })
 
         if (error) throw error
+        
+        // ✅ Ensure minimum 5 seconds delay
+        const elapsed = Date.now() - startTime
+        if (elapsed < 5000) {
+          await new Promise(resolve => setTimeout(resolve, 5000 - elapsed))
+        }
+        
         toast.success('Post berhasil dibuat!')
       }
 
@@ -142,7 +157,7 @@ export default function CreatePost({
 
   return (
     <>
-      {/* Loading Overlay saat Posting */}
+      {/* Loading Overlay saat Posting - 5 DETIK */}
       {loading && (
         <div className="fixed inset-0 bg-black/50 dark:bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center">
           <div className="bg-white dark:bg-gray-800 rounded-2xl p-8 shadow-2xl max-w-sm mx-4 animate-in fade-in zoom-in duration-300">
@@ -242,6 +257,26 @@ export default function CreatePost({
                 50% { opacity: 0.6; }
               }
 
+              .progress-bar {
+                width: 100%;
+                height: 6px;
+                background: #e5e7eb;
+                border-radius: 3px;
+                overflow: hidden;
+                margin-top: 1.5rem;
+              }
+
+              .progress-bar-fill {
+                height: 100%;
+                background: linear-gradient(90deg, #22c55e, #16a34a);
+                animation: progress 5s linear;
+              }
+
+              @keyframes progress {
+                from { width: 0%; }
+                to { width: 100%; }
+              }
+
               @keyframes fade-in {
                 from { opacity: 0; }
                 to { opacity: 1; }
@@ -292,9 +327,14 @@ export default function CreatePost({
               <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-2">
                 {editMode ? 'Updating Post...' : 'Posting...'}
               </h3>
-              <p className="text-sm text-gray-600 dark:text-gray-400">
+              <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
                 Sedang mengirim post Anda 🚚
               </p>
+              
+              {/* Progress Bar */}
+              <div className="progress-bar">
+                <div className="progress-bar-fill"></div>
+              </div>
             </div>
           </div>
         </div>
