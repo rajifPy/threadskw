@@ -19,19 +19,15 @@ function LoginForm() {
   useEffect(() => {
     setMounted(true)
     
-    // Quick check - no waiting
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session?.user) {
-        router.replace('/')
-      }
-    })
+    // ✅ REMOVED: No auth check on mount - let middleware handle it
+    // This eliminates the slow initial check
     
     const error = searchParams.get('error')
     const message = searchParams.get('message')
     
     if (message) toast.success(decodeURIComponent(message))
     if (error) toast.error(decodeURIComponent(error))
-  }, [])
+  }, [searchParams])
 
   if (!mounted) {
     return (
@@ -54,7 +50,8 @@ function LoginForm() {
       if (error) throw error
 
       toast.success('Login berhasil!')
-      window.location.href = '/'
+      // ✅ Use router.push instead of window.location for faster navigation
+      router.push('/')
       
     } catch (error: any) {
       let msg = 'Login gagal'
@@ -70,7 +67,7 @@ function LoginForm() {
     setGoogleLoading(true)
     
     try {
-      await supabase.auth.signOut({ scope: 'local' })
+      // ✅ REMOVED: No signOut before OAuth - unnecessary delay
       
       const { error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
