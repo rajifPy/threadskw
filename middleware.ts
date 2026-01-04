@@ -49,29 +49,17 @@ export async function middleware(request: NextRequest) {
     }
   )
 
-  // ✅ FIX: Public routes yang tidak perlu auth check
+  // ✅ Public routes - NO AUTH CHECK (ini yang bikin lambat!)
   const publicRoutes = ['/login', '/register', '/auth/callback', '/test-auth', '/debug']
   const isPublicRoute = publicRoutes.some(route => pathname.startsWith(route))
 
   if (isPublicRoute) {
-    // ✅ Tapi redirect ke home jika sudah login (kecuali callback & debug)
-    if (pathname === '/login' || pathname === '/register') {
-      try {
-        const { data: { user } } = await supabase.auth.getUser()
-        
-        if (user) {
-          console.log(`[Middleware] User logged in, redirecting ${pathname} -> /`)
-          return NextResponse.redirect(new URL('/', request.url))
-        }
-      } catch (error) {
-        // Ignore error, let them access login/register
-      }
-    }
-    
+    // ✅ REMOVED: No auth check for public routes
+    // Let the client-side handle redirects if already logged in
     return response
   }
 
-  // Protected routes
+  // Protected routes - only check auth here
   const protectedRoutes = ['/', '/profile', '/post']
   const isProtectedRoute = protectedRoutes.some(route => 
     pathname === route || pathname.startsWith(route + '/')
@@ -79,10 +67,11 @@ export async function middleware(request: NextRequest) {
 
   if (isProtectedRoute) {
     try {
-      const { data: { user }, error } = await supabase.auth.getUser()
+      // ✅ Use getSession instead of getUser (faster, uses cached session)
+      const { data: { session }, error } = await supabase.auth.getSession()
 
-      if (error || !user) {
-        console.log(`[Middleware] No user, redirecting ${pathname} -> /login`)
+      if (error || !session) {
+        console.log(`[Middleware] No session, redirecting ${pathname} -> /login`)
         return NextResponse.redirect(new URL('/login', request.url))
       }
     } catch (error) {
