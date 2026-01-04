@@ -7,10 +7,6 @@ import { useAuth } from '@/components/layout/AuthProvider'
 import toast from 'react-hot-toast'
 import { generateAvatarUrl } from '@/utils/helpers'
 
-// ✅ Import sound files
-import truckSound from '@/public/sound/volvo-engine-431665.mp3'
-import successSound from '@/public/sound/successed-295058.mp3'
-
 interface CreatePostProps {
   onPostCreated?: () => void
   editMode?: boolean
@@ -45,11 +41,14 @@ export default function CreatePost({
   // ✅ TAMBAHAN: Initialize audio elements
   useEffect(() => {
     console.log('🎵 Initializing audio...')
-    console.log('Truck sound path:', truckSound)
-    console.log('Success sound path:', successSound)
     
-    truckSoundRef.current = new Audio(truckSound)
-    successSoundRef.current = new Audio(successSound)
+    // Gunakan path absolut dari public folder
+    truckSoundRef.current = new Audio('/sound/volvo-engine-431665.mp3')
+    successSoundRef.current = new Audio('/sound/successed-295058.mp3')
+    
+    // Set volume
+    if (truckSoundRef.current) truckSoundRef.current.volume = 0.7
+    if (successSoundRef.current) successSoundRef.current.volume = 0.8
     
     // Preload audio
     truckSoundRef.current.load()
