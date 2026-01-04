@@ -176,8 +176,8 @@ export default function CreatePost({
         
         // ✅ Ensure minimum 8 seconds delay (sesuai durasi sound volvo)
         const elapsed = Date.now() - startTime
-        if (elapsed < 8000) {
-          await new Promise(resolve => setTimeout(resolve, 8000 - elapsed))
+        if (elapsed < 9000) {
+          await new Promise(resolve => setTimeout(resolve, 9000 - elapsed))
         }
         
         playSuccessSound() // ✅ TAMBAHAN: Play success sound setelah berhasil
@@ -195,8 +195,8 @@ export default function CreatePost({
         
         // ✅ Ensure minimum 8 seconds delay (sesuai durasi sound volvo)
         const elapsed = Date.now() - startTime
-        if (elapsed < 8000) {
-          await new Promise(resolve => setTimeout(resolve, 8000 - elapsed))
+        if (elapsed < 9000) {
+          await new Promise(resolve => setTimeout(resolve, 9000 - elapsed))
         }
         
         playSuccessSound() // ✅ TAMBAHAN: Play success sound setelah berhasil
