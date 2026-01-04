@@ -7,6 +7,10 @@ import { useAuth } from '@/components/layout/AuthProvider'
 import toast from 'react-hot-toast'
 import { generateAvatarUrl } from '@/utils/helpers'
 
+// ✅ Import sound files
+import truckSound from '@/components/sound/volvo-engine-431665.mp3'
+import successSound from '@/components/sound/successed-295058.mp3'
+
 interface CreatePostProps {
   onPostCreated?: () => void
   editMode?: boolean
@@ -40,12 +44,18 @@ export default function CreatePost({
 
   // ✅ TAMBAHAN: Initialize audio elements
   useEffect(() => {
-    truckSoundRef.current = new Audio('/sound/volvo-engine-431665.mp3')
-    successSoundRef.current = new Audio('/sound/successed-295058.mp3')
+    console.log('🎵 Initializing audio...')
+    console.log('Truck sound path:', truckSound)
+    console.log('Success sound path:', successSound)
+    
+    truckSoundRef.current = new Audio(truckSound)
+    successSoundRef.current = new Audio(successSound)
     
     // Preload audio
     truckSoundRef.current.load()
     successSoundRef.current.load()
+    
+    console.log('✅ Audio initialized')
     
     return () => {
       // Cleanup
@@ -62,17 +72,29 @@ export default function CreatePost({
 
   // ✅ TAMBAHAN: Function untuk play truck sound
   const playTruckSound = () => {
+    console.log('🔊 Attempting to play truck sound...')
     if (truckSoundRef.current) {
+      console.log('✅ Truck sound ref exists')
       truckSoundRef.current.currentTime = 0
-      truckSoundRef.current.play().catch(err => console.log('Truck sound error:', err))
+      truckSoundRef.current.play()
+        .then(() => console.log('✅ Truck sound playing!'))
+        .catch(err => console.error('❌ Truck sound error:', err))
+    } else {
+      console.error('❌ Truck sound ref is null')
     }
   }
 
   // ✅ TAMBAHAN: Function untuk play success sound
   const playSuccessSound = () => {
+    console.log('🔊 Attempting to play success sound...')
     if (successSoundRef.current) {
+      console.log('✅ Success sound ref exists')
       successSoundRef.current.currentTime = 0
-      successSoundRef.current.play().catch(err => console.log('Success sound error:', err))
+      successSoundRef.current.play()
+        .then(() => console.log('✅ Success sound playing!'))
+        .catch(err => console.error('❌ Success sound error:', err))
+    } else {
+      console.error('❌ Success sound ref is null')
     }
   }
 
