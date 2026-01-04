@@ -6,7 +6,6 @@ export default function ThemeToggle() {
   const [isDark, setIsDark] = useState(false)
 
   useEffect(() => {
-    // Check for saved theme preference or default to light mode
     const savedTheme = localStorage.getItem('theme')
     const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches
     
@@ -126,10 +125,9 @@ export default function ThemeToggle() {
           opacity: 1;
         }
 
-        /* Responsive adjustments */
         @media (max-width: 768px) {
           .theme-switch {
-            font-size: 15px;
+            font-size: 14px;
           }
         }
       `}</style>
