@@ -7,13 +7,19 @@ export async function GET(request: NextRequest) {
   const code = requestUrl.searchParams.get('code')
   const error = requestUrl.searchParams.get('error')
 
+  console.log('🔵 [Callback] Starting auth callback...')
+  console.log('🔵 [Callback] Code:', code ? 'Present' : 'Missing')
+  console.log('🔵 [Callback] Error:', error || 'None')
+
   if (error) {
+    console.log('❌ [Callback] OAuth error:', error)
     return NextResponse.redirect(
       new URL(`/login?error=${encodeURIComponent(error)}`, requestUrl.origin)
     )
   }
 
   if (!code) {
+    console.log('❌ [Callback] No authorization code')
     return NextResponse.redirect(
       new URL('/login?error=No authorization code', requestUrl.origin)
     )
@@ -35,7 +41,7 @@ export async function GET(request: NextRequest) {
             cookieStore.set({ name, value, ...options })
             response.cookies.set({ name, value, ...options })
           } catch (e) {
-            console.error('Cookie set error:', e)
+            console.error('❌ Cookie set error:', e)
           }
         },
         remove(name: string, options: CookieOptions) {
@@ -43,7 +49,7 @@ export async function GET(request: NextRequest) {
             cookieStore.set({ name, value: '', ...options, maxAge: 0 })
             response.cookies.set({ name, value: '', ...options, maxAge: 0 })
           } catch (e) {
-            console.error('Cookie remove error:', e)
+            console.error('❌ Cookie remove error:', e)
           }
         },
       },
@@ -51,10 +57,11 @@ export async function GET(request: NextRequest) {
   )
   
   try {
+    console.log('🔵 [Callback] Exchanging code for session...')
     const { data, error: sessionError } = await supabase.auth.exchangeCodeForSession(code)
 
     if (sessionError) {
-      console.error('Session error:', sessionError)
+      console.error('❌ [Callback] Session error:', sessionError)
       
       if (sessionError.message?.toLowerCase().includes('pkce')) {
         return new NextResponse(
@@ -83,22 +90,35 @@ export async function GET(request: NextRequest) {
 
     const user = data?.user
     if (!user) {
+      console.log('❌ [Callback] No user in session data')
       return NextResponse.redirect(
         new URL('/login?error=Authentication failed', requestUrl.origin)
       )
     }
 
-    console.log('✅ User authenticated:', user.email)
+    console.log('✅ [Callback] User authenticated:', user.email)
+    console.log('🔵 [Callback] User ID:', user.id)
+    console.log('🔵 [Callback] User metadata:', JSON.stringify(user.user_metadata, null, 2))
     
-    // ✅ Check and create profile - MUST WAIT for this
-    const { data: existingProfile } = await supabase
+    // ✅ Check and create profile with detailed logging
+    console.log('🔵 [Callback] Checking for existing profile...')
+    const { data: existingProfile, error: profileCheckError } = await supabase
       .from('profiles')
-      .select('id')
+      .select('*')
       .eq('id', user.id)
       .maybeSingle()
 
+    if (profileCheckError) {
+      console.error('❌ [Callback] Profile check error:', profileCheckError)
+    } else {
+      console.log('🔵 [Callback] Profile check result:', existingProfile ? 'Found' : 'Not found')
+      if (existingProfile) {
+        console.log('🔵 [Callback] Existing profile:', JSON.stringify(existingProfile, null, 2))
+      }
+    }
+
     if (!existingProfile) {
-      console.log('⚠️ Profile not found, creating...')
+      console.log('⚠️ [Callback] Profile not found, creating...')
       
       const username = (
         user.user_metadata?.username || 
@@ -108,25 +128,59 @@ export async function GET(request: NextRequest) {
         `user_${user.id.substring(0, 8)}`
       ).toLowerCase().replace(/[^a-z0-9_]/g, '_')
       
-      const { error: insertError } = await supabase.from('profiles').insert({
+      console.log('🔵 [Callback] Generated username:', username)
+      
+      const profileData = {
         id: user.id,
         username: username,
         full_name: user.user_metadata?.full_name || user.user_metadata?.name || null,
         avatar_url: user.user_metadata?.avatar_url || user.user_metadata?.picture || null,
-      })
-
-      if (insertError) {
-        console.error('❌ Profile creation error:', insertError)
-        // Redirect to debug page if profile creation fails
-        return NextResponse.redirect(new URL('/debug', requestUrl.origin))
       }
       
-      console.log('✅ Profile created successfully')
+      console.log('🔵 [Callback] Creating profile with data:', JSON.stringify(profileData, null, 2))
+      
+      const { data: newProfile, error: insertError } = await supabase
+        .from('profiles')
+        .insert(profileData)
+        .select()
+        .single()
+
+      if (insertError) {
+        console.error('❌ [Callback] Profile creation error:', insertError)
+        console.error('❌ [Callback] Error code:', insertError.code)
+        console.error('❌ [Callback] Error details:', insertError.details)
+        console.error('❌ [Callback] Error hint:', insertError.hint)
+        
+        // Redirect to debug page with error info
+        return NextResponse.redirect(
+          new URL(`/debug?error=profile_creation_failed&details=${encodeURIComponent(insertError.message)}`, requestUrl.origin)
+        )
+      }
+      
+      console.log('✅ [Callback] Profile created successfully:', JSON.stringify(newProfile, null, 2))
     } else {
-      console.log('✅ Profile already exists')
+      console.log('✅ [Callback] Profile already exists')
     }
 
-    // ✅ Redirect after profile is confirmed to exist
+    // ✅ Verify profile exists before redirecting
+    console.log('🔵 [Callback] Final verification - checking profile...')
+    const { data: finalProfile, error: finalCheckError } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('id', user.id)
+      .single()
+    
+    if (finalCheckError || !finalProfile) {
+      console.error('❌ [Callback] Final verification failed:', finalCheckError)
+      return NextResponse.redirect(
+        new URL(`/debug?error=profile_not_found_after_creation`, requestUrl.origin)
+      )
+    }
+    
+    console.log('✅ [Callback] Final verification passed. Profile:', finalProfile.username)
+    console.log('✅ [Callback] Redirecting to home page...')
+
+    // ✅ Redirect with faster meta refresh (0 seconds)
     return new NextResponse(
       `<!DOCTYPE html>
       <html>
@@ -152,7 +206,8 @@ export async function GET(request: NextRequest) {
     )
     
   } catch (err: any) {
-    console.error('Callback error:', err)
+    console.error('❌ [Callback] Unexpected error:', err)
+    console.error('❌ [Callback] Error stack:', err.stack)
     return NextResponse.redirect(
       new URL(`/login?error=${encodeURIComponent(err.message || 'Error')}`, requestUrl.origin)
     )
