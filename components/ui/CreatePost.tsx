@@ -1,29 +1,44 @@
 'use client'
 
 import { useState, useRef, useEffect } from 'react'
+import Image from 'next/image'
 import { createClient } from '@/lib/supabase/client'
 import { useAuth } from '@/components/layout/AuthProvider'
 import toast from 'react-hot-toast'
+import { generateAvatarUrl } from '@/utils/helpers'
 
 interface CreatePostProps {
-  onPostCreated: () => void
+  onPostCreated?: () => void
+  editMode?: boolean
+  initialContent?: string
+  initialImageUrl?: string
+  postId?: number
+  onCancel?: () => void
 }
 
-export default function CreatePost({ onPostCreated }: CreatePostProps) {
-  const { user } = useAuth()
-  const [content, setContent] = useState('')
-  const [imageFile, setImageFile] = useState<File | null>(null)
-  const [imagePreview, setImagePreview] = useState<string>('')
-  const [submitting, setSubmitting] = useState(false)
-  const [showTruck, setShowTruck] = useState(false)
+export default function CreatePost({ 
+  onPostCreated, 
+  editMode = false,
+  initialContent = '',
+  initialImageUrl = '',
+  postId,
+  onCancel
+}: CreatePostProps) {
+  const { user, profile } = useAuth()
+  const [content, setContent] = useState(initialContent)
+  const [image, setImage] = useState<File | null>(null)
+  const [imagePreview, setImagePreview] = useState<string>(initialImageUrl)
+  const [loading, setLoading] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const supabase = createClient()
-  
-  // Audio refs
+
+  // ✅ TAMBAHAN: Audio refs untuk sound effects
   const truckSoundRef = useRef<HTMLAudioElement | null>(null)
   const successSoundRef = useRef<HTMLAudioElement | null>(null)
 
-  // Initialize audio elements
+  const MAX_CHARS = 500
+
+  // ✅ TAMBAHAN: Initialize audio elements
   useEffect(() => {
     truckSoundRef.current = new Audio('/sound/volvo-engine-431665.mp3')
     successSoundRef.current = new Audio('/sound/successed-295058.mp3')
@@ -45,6 +60,7 @@ export default function CreatePost({ onPostCreated }: CreatePostProps) {
     }
   }, [])
 
+  // ✅ TAMBAHAN: Function untuk play truck sound
   const playTruckSound = () => {
     if (truckSoundRef.current) {
       truckSoundRef.current.currentTime = 0
@@ -52,6 +68,7 @@ export default function CreatePost({ onPostCreated }: CreatePostProps) {
     }
   }
 
+  // ✅ TAMBAHAN: Function untuk play success sound
   const playSuccessSound = () => {
     if (successSoundRef.current) {
       successSoundRef.current.currentTime = 0
@@ -62,43 +79,32 @@ export default function CreatePost({ onPostCreated }: CreatePostProps) {
   const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (file) {
-      if (!file.type.startsWith('image/')) {
-        toast.error('File harus berupa gambar')
-        return
-      }
-
       if (file.size > 5 * 1024 * 1024) {
         toast.error('Ukuran gambar maksimal 5MB')
         return
       }
-
-      setImageFile(file)
+      setImage(file)
       setImagePreview(URL.createObjectURL(file))
     }
   }
 
   const removeImage = () => {
-    setImageFile(null)
+    setImage(null)
     setImagePreview('')
     if (fileInputRef.current) {
       fileInputRef.current.value = ''
     }
   }
 
-  const uploadImage = async (): Promise<string | null> => {
-    if (!imageFile) return null
-
+  const uploadImage = async (file: File): Promise<string | null> => {
     try {
-      const fileExt = imageFile.name.split('.').pop()
+      const fileExt = file.name.split('.').pop()
       const fileName = `${user!.id}-${Date.now()}.${fileExt}`
-      const filePath = `posts/${fileName}`
+      const filePath = `${fileName}`
 
       const { error: uploadError } = await supabase.storage
         .from('post-images')
-        .upload(filePath, imageFile, {
-          cacheControl: '3600',
-          upsert: false
-        })
+        .upload(filePath, file)
 
       if (uploadError) throw uploadError
 
@@ -107,103 +113,319 @@ export default function CreatePost({ onPostCreated }: CreatePostProps) {
         .getPublicUrl(filePath)
 
       return publicUrl
-    } catch (error: any) {
-      console.error('Upload failed:', error)
-      toast.error('Gagal upload gambar')
+    } catch (error) {
+      console.error('Error uploading image:', error)
       return null
     }
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-
-    if (!content.trim() && !imageFile) {
-      toast.error('Post tidak boleh kosong')
+    
+    if (!content.trim()) {
+      toast.error('Konten tidak boleh kosong')
       return
     }
 
-    setSubmitting(true)
-    setShowTruck(true)
-    
-    // Play truck sound when animation starts
-    playTruckSound()
+    setLoading(true)
+    playTruckSound() // ✅ TAMBAHAN: Play truck sound saat mulai loading
+    const startTime = Date.now()
 
     try {
-      let imageUrl: string | null = null
-      if (imageFile) {
-        imageUrl = await uploadImage()
-        if (!imageUrl) {
-          setSubmitting(false)
-          setShowTruck(false)
-          return
+      let imageUrl = imagePreview
+
+      if (image) {
+        const uploadedUrl = await uploadImage(image)
+        if (uploadedUrl) {
+          imageUrl = uploadedUrl
         }
       }
 
-      const { error } = await supabase
-        .from('posts')
-        .insert({
-          user_id: user!.id,
-          content: content.trim(),
-          image_url: imageUrl,
-        })
+      if (editMode && postId) {
+        const { error } = await supabase
+          .from('posts')
+          .update({
+            content: content.trim(),
+            image_url: imageUrl || null,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', postId)
 
-      if (error) throw error
+        if (error) throw error
+        
+        // ✅ Ensure minimum 5 seconds delay
+        const elapsed = Date.now() - startTime
+        if (elapsed < 5000) {
+          await new Promise(resolve => setTimeout(resolve, 5000 - elapsed))
+        }
+        
+        playSuccessSound() // ✅ TAMBAHAN: Play success sound setelah berhasil
+        toast.success('Post berhasil diupdate!')
+      } else {
+        const { error } = await supabase
+          .from('posts')
+          .insert({
+            user_id: user!.id,
+            content: content.trim(),
+            image_url: imageUrl || null,
+          })
 
-      // Wait for truck animation to complete (3s total)
-      await new Promise(resolve => setTimeout(resolve, 3000))
-      
-      // Play success sound
-      playSuccessSound()
-      
-      setShowTruck(false)
-      toast.success('Post berhasil dibuat!')
+        if (error) throw error
+        
+        // ✅ Ensure minimum 5 seconds delay
+        const elapsed = Date.now() - startTime
+        if (elapsed < 5000) {
+          await new Promise(resolve => setTimeout(resolve, 5000 - elapsed))
+        }
+        
+        playSuccessSound() // ✅ TAMBAHAN: Play success sound setelah berhasil
+        toast.success('Post berhasil dibuat!')
+      }
+
       setContent('')
-      setImageFile(null)
+      setImage(null)
       setImagePreview('')
-      onPostCreated()
+      if (fileInputRef.current) {
+        fileInputRef.current.value = ''
+      }
+      
+      if (onPostCreated) {
+        onPostCreated()
+      }
     } catch (error) {
       console.error('Error creating post:', error)
       toast.error('Gagal membuat post')
-      setShowTruck(false)
     } finally {
-      setSubmitting(false)
+      setLoading(false)
     }
   }
 
   return (
     <>
-      <div className="bg-white dark:bg-gray-800 rounded-xl shadow-md p-6 mb-6 transition-colors duration-300">
-        <form onSubmit={handleSubmit}>
+      {/* Loading Overlay saat Posting - 5 DETIK */}
+      {loading && (
+        <div className="fixed inset-0 bg-black/50 dark:bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center">
+          <div className="bg-white dark:bg-gray-800 rounded-2xl p-8 shadow-2xl max-w-sm mx-4 animate-in fade-in zoom-in duration-300">
+            <style jsx>{`
+              .truck-wrapper {
+                width: 180px;
+                height: 90px;
+                display: flex;
+                flex-direction: column;
+                position: relative;
+                align-items: center;
+                justify-content: flex-end;
+                overflow-x: hidden;
+                margin: 0 auto;
+              }
+
+              .truck-body {
+                width: 65%;
+                height: fit-content;
+                margin-bottom: 6px;
+                animation: motion 1s linear infinite;
+              }
+
+              @keyframes motion {
+                0%, 100% { transform: translateY(0px); }
+                50% { transform: translateY(3px); }
+              }
+
+              .truck-tires {
+                width: 65%;
+                height: fit-content;
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                padding: 0px 10px 0px 15px;
+                position: absolute;
+                bottom: 0;
+              }
+
+              .truck-tires svg {
+                width: 22px;
+              }
+
+              .road {
+                width: 100%;
+                height: 1.5px;
+                background-color: #64748b;
+                position: relative;
+                bottom: 0;
+                align-self: flex-end;
+                border-radius: 3px;
+              }
+
+              .road::before {
+                content: "";
+                position: absolute;
+                width: 20px;
+                height: 100%;
+                background-color: #64748b;
+                right: -50%;
+                border-radius: 3px;
+                animation: roadAnimation 1.4s linear infinite;
+                border-left: 10px solid #f1f5f9;
+              }
+
+              .road::after {
+                content: "";
+                position: absolute;
+                width: 10px;
+                height: 100%;
+                background-color: #64748b;
+                right: -65%;
+                border-radius: 3px;
+                animation: roadAnimation 1.4s linear infinite;
+                border-left: 4px solid #f1f5f9;
+              }
+
+              .lamp-post {
+                position: absolute;
+                bottom: 0;
+                right: -90%;
+                height: 80px;
+                animation: roadAnimation 1.4s linear infinite;
+              }
+
+              @keyframes roadAnimation {
+                0% { transform: translateX(0px); }
+                100% { transform: translateX(-350px); }
+              }
+
+              .loading-text {
+                animation: pulse 1.5s ease-in-out infinite;
+              }
+
+              @keyframes pulse {
+                0%, 100% { opacity: 1; }
+                50% { opacity: 0.6; }
+              }
+
+              .progress-bar {
+                width: 100%;
+                height: 6px;
+                background: #e5e7eb;
+                border-radius: 3px;
+                overflow: hidden;
+                margin-top: 1.5rem;
+              }
+
+              .progress-bar-fill {
+                height: 100%;
+                background: linear-gradient(90deg, #22c55e, #16a34a);
+                animation: progress 5s linear;
+              }
+
+              @keyframes progress {
+                from { width: 0%; }
+                to { width: 100%; }
+              }
+
+              @keyframes fade-in {
+                from { opacity: 0; }
+                to { opacity: 1; }
+              }
+
+              @keyframes zoom-in {
+                from { transform: scale(0.95); }
+                to { transform: scale(1); }
+              }
+
+              .animate-in {
+                animation: fade-in 0.3s ease-out, zoom-in 0.3s ease-out;
+              }
+            `}</style>
+
+            <div className="truck-wrapper mb-6">
+              <div className="truck-body">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 198 93">
+                  <path strokeWidth={3} stroke="#64748b" fill="#22c55e" d="M135 22.5H177.264C178.295 22.5 179.22 23.133 179.594 24.0939L192.33 56.8443C192.442 57.1332 192.5 57.4404 192.5 57.7504V89C192.5 90.3807 191.381 91.5 190 91.5H135C133.619 91.5 132.5 90.3807 132.5 89V25C132.5 23.6193 133.619 22.5 135 22.5Z" />
+                  <path strokeWidth={3} stroke="#64748b" fill="#6b7280" d="M146 33.5H181.741C182.779 33.5 183.709 34.1415 184.078 35.112L190.538 52.112C191.16 53.748 189.951 55.5 188.201 55.5H146C144.619 55.5 143.5 54.3807 143.5 53V36C143.5 34.6193 144.619 33.5 146 33.5Z" />
+                  <path strokeWidth={2} stroke="#64748b" fill="#64748b" d="M150 65C150 65.39 149.763 65.8656 149.127 66.2893C148.499 66.7083 147.573 67 146.5 67C145.427 67 144.501 66.7083 143.873 66.2893C143.237 65.8656 143 65.39 143 65C143 64.61 143.237 64.1344 143.873 63.7107C144.501 63.2917 145.427 63 146.5 63C147.573 63 148.499 63.2917 149.127 63.7107C149.763 64.1344 150 64.61 150 65Z" />
+                  <rect strokeWidth={2} stroke="#64748b" fill="#fbbf24" rx={1} height={7} width={5} y={63} x={187} />
+                  <rect strokeWidth={2} stroke="#64748b" fill="#64748b" rx={1} height={11} width={4} y={81} x={193} />
+                  <rect strokeWidth={3} stroke="#64748b" fill="#d1d5db" rx="2.5" height={90} width={121} y="1.5" x="6.5" />
+                  <rect strokeWidth={2} stroke="#64748b" fill="#d1d5db" rx={2} height={4} width={6} y={84} x={1} />
+                </svg>
+              </div>
+
+              <div className="truck-tires">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 30 30">
+                  <circle strokeWidth={3} stroke="#64748b" fill="#64748b" r="13.5" cy={15} cx={15} />
+                  <circle fill="#d1d5db" r={7} cy={15} cx={15} />
+                </svg>
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 30 30">
+                  <circle strokeWidth={3} stroke="#64748b" fill="#64748b" r="13.5" cy={15} cx={15} />
+                  <circle fill="#d1d5db" r={7} cy={15} cx={15} />
+                </svg>
+              </div>
+
+              <div className="road" />
+
+              <svg xmlSpace="preserve" viewBox="0 0 453.459 453.459" xmlns="http://www.w3.org/2000/svg" className="lamp-post" fill="#64748b">
+                <path d="M252.882,0c-37.781,0-68.686,29.953-70.245,67.358h-6.917v8.954c-26.109,2.163-45.463,10.011-45.463,19.366h9.993c-1.65,5.146-2.507,10.54-2.507,16.017c0,28.956,23.558,52.514,52.514,52.514c28.956,0,52.514-23.558,52.514-52.514c0-5.478-0.856-10.872-2.506-16.017h9.992c0-9.354-19.352-17.204-45.463-19.366v-8.954h-6.149C200.189,38.779,223.924,16,252.882,16c29.952,0,54.32,24.368,54.32,54.32c0,28.774-11.078,37.009-25.105,47.437c-17.444,12.968-37.216,27.667-37.216,78.884v113.914h-0.797c-5.068,0-9.174,4.108-9.174,9.177c0,2.844,1.293,5.383,3.321,7.066c-3.432,27.933-26.851,95.744-8.226,115.459v11.202h45.75v-11.202c18.625-19.715-4.794-87.527-8.227-115.459c2.029-1.683,3.322-4.223,3.322-7.066c0-5.068-4.107-9.177-9.176-9.177h-0.795V196.641c0-43.174,14.942-54.283,30.762-66.043c14.793-10.997,31.559-23.461,31.559-60.277C323.202,31.545,291.656,0,252.882,0zM232.77,111.694c0,23.442-19.071,42.514-42.514,42.514c-23.442,0-42.514-19.072-42.514-42.514c0-5.531,1.078-10.957,3.141-16.017h78.747C231.693,100.736,232.77,106.162,232.77,111.694z" />
+              </svg>
+            </div>
+
+            <div className="text-center loading-text">
+              <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-2">
+                {editMode ? 'Updating Post...' : 'Posting...'}
+              </h3>
+              <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+                Sedang mengirim post Anda 🚚
+              </p>
+              
+              {/* Progress Bar */}
+              <div className="progress-bar">
+                <div className="progress-bar-fill"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="bg-white dark:bg-gray-800 rounded-xl shadow-md p-4 mb-6 transition-colors duration-300">
+      <div className="flex items-start space-x-3">
+        <div className="relative w-10 h-10 rounded-full overflow-hidden flex-shrink-0">
+          <Image
+            src={profile?.avatar_url || generateAvatarUrl(profile?.username || 'user')}
+            alt="Avatar"
+            fill
+            className="object-cover"
+          />
+        </div>
+        
+        <form onSubmit={handleSubmit} className="flex-1">
           <textarea
             value={content}
             onChange={(e) => setContent(e.target.value)}
-            placeholder="Apa yang ingin kamu bagikan?"
-            className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none resize-none transition-colors duration-300"
-            rows={4}
-            maxLength={500}
-            disabled={submitting}
+            placeholder="Apa pendapat kamu?"
+            className="w-full resize-none border-none focus:outline-none text-gray-800 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 bg-transparent"
+            rows={3}
+            maxLength={MAX_CHARS}
           />
 
           {imagePreview && (
-            <div className="mt-4 relative">
-              <img
+            <div className="relative mt-3 rounded-lg overflow-hidden">
+              <Image
                 src={imagePreview}
                 alt="Preview"
-                className="w-full max-h-64 object-cover rounded-lg"
+                width={500}
+                height={300}
+                className="w-full h-auto max-h-96 object-cover"
               />
               <button
                 type="button"
                 onClick={removeImage}
-                className="absolute top-2 right-2 p-2 bg-red-500 text-white rounded-full hover:bg-red-600 transition-colors"
+                className="absolute top-2 right-2 bg-red-500 text-white rounded-full w-8 h-8 flex items-center justify-center hover:bg-red-600 transition-colors"
               >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
+                ×
               </button>
             </div>
           )}
 
-          <div className="flex items-center justify-between mt-4">
+          <div className="flex items-center justify-between mt-3 pt-3 border-t border-gray-100 dark:border-gray-700">
             <div className="flex items-center space-x-2">
               <input
                 ref={fileInputRef}
@@ -211,102 +433,45 @@ export default function CreatePost({ onPostCreated }: CreatePostProps) {
                 accept="image/*"
                 onChange={handleImageChange}
                 className="hidden"
-                id="post-image"
-                disabled={submitting}
+                id="image-upload"
               />
               <label
-                htmlFor="post-image"
-                className={`flex items-center space-x-2 px-4 py-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors cursor-pointer ${
-                  submitting ? 'opacity-50 cursor-not-allowed' : ''
-                }`}
+                htmlFor="image-upload"
+                className="cursor-pointer text-primary-600 dark:text-primary-400 hover:text-primary-700 dark:hover:text-primary-300 transition-colors"
               >
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
                 </svg>
-                <span className="text-sm">Gambar</span>
               </label>
-              <span className={`text-sm ${content.length > 450 ? 'text-red-500' : 'text-gray-400 dark:text-gray-500'}`}>
-                {content.length}/500
+              
+              <span className={`text-sm ${content.length > MAX_CHARS - 50 ? 'text-red-500' : 'text-gray-400 dark:text-gray-500'}`}>
+                {content.length}/{MAX_CHARS}
               </span>
             </div>
 
-            <button
-              type="submit"
-              disabled={submitting || (!content.trim() && !imageFile)}
-              className="px-6 py-2 bg-primary-500 text-white rounded-full font-medium hover:bg-primary-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-            >
-              {submitting ? 'Posting...' : 'Post'}
-            </button>
+            <div className="flex items-center space-x-2">
+              {editMode && onCancel && (
+                <button
+                  type="button"
+                  onClick={onCancel}
+                  className="px-4 py-2 text-gray-600 dark:text-gray-300 hover:text-gray-800 dark:hover:text-gray-100 font-medium transition-colors"
+                  disabled={loading}
+                >
+                  Batal
+                </button>
+              )}
+              <button
+                type="submit"
+                disabled={loading || !content.trim()}
+                className="px-6 py-2 bg-primary-500 text-white rounded-full font-medium hover:bg-primary-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                {loading ? 'Loading...' : editMode ? 'Update' : 'Posting'}
+              </button>
+            </div>
           </div>
         </form>
       </div>
-
-      {/* Truck Animation with Sound */}
-      {showTruck && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
-          <div className="relative w-full max-w-md">
-            {/* Animated Truck */}
-            <div className="truck-animation">
-              <svg viewBox="0 0 200 100" className="w-full">
-                {/* Road */}
-                <rect x="0" y="70" width="200" height="4" fill="#444" className="dark:fill-gray-600" />
-                
-                {/* Truck Body */}
-                <g className="truck">
-                  <rect x="60" y="45" width="50" height="25" fill="#22c55e" rx="2" />
-                  <rect x="110" y="50" width="25" height="20" fill="#16a34a" rx="2" />
-                  
-                  {/* Wheels */}
-                  <circle cx="75" cy="70" r="6" fill="#333" className="wheel" />
-                  <circle cx="120" cy="70" r="6" fill="#333" className="wheel" />
-                  
-                  {/* Window */}
-                  <rect x="115" y="55" width="15" height="10" fill="#fff" opacity="0.7" rx="1" />
-                </g>
-              </svg>
-            </div>
-
-            <div className="text-center mt-6">
-              <p className="text-white text-lg font-medium">Mengirim post...</p>
-              <div className="mt-3 flex justify-center space-x-1">
-                <div className="w-2 h-2 bg-white rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
-                <div className="w-2 h-2 bg-white rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
-                <div className="w-2 h-2 bg-white rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      <style jsx>{`
-        @keyframes truckDrive {
-          0% {
-            transform: translateX(-100px);
-          }
-          100% {
-            transform: translateX(300px);
-          }
-        }
-
-        @keyframes wheelRotate {
-          0% {
-            transform: rotate(0deg);
-          }
-          100% {
-            transform: rotate(360deg);
-          }
-        }
-
-        .truck {
-          animation: truckDrive 3s ease-in-out;
-          transform-origin: center;
-        }
-
-        .wheel {
-          animation: wheelRotate 0.5s linear infinite;
-          transform-origin: center;
-        }
-      `}</style>
+    </div>
     </>
   )
 }
