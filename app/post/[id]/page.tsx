@@ -349,15 +349,15 @@ export default function PostDetailPage() {
           ) : (
             <div className="space-y-0">
               {comments.map((comment, index) => (
-                <div key={comment.id} className="relative flex items-start space-x-3 pb-4">
-                  {/* Thread Line - Garis Vertikal */}
+                <div key={comment.id} className="relative flex items-start space-x-3 pb-6">
+                  {/* Thread Line - Garis Vertikal LEBIH TEBAL */}
                   {index < comments.length - 1 && (
-                    <div className="absolute left-5 top-12 bottom-0 w-0.5 bg-gray-200"></div>
+                    <div className="absolute left-[19px] top-[52px] bottom-0 w-[2px] bg-gray-300"></div>
                   )}
 
-                  {/* Avatar */}
+                  {/* Avatar dengan border putih */}
                   <Link href={`/profile/${comment.profiles.username}`}>
-                    <div className="relative w-10 h-10 rounded-full overflow-hidden flex-shrink-0 z-10 bg-white">
+                    <div className="relative w-10 h-10 rounded-full overflow-hidden flex-shrink-0 z-10 ring-4 ring-white">
                       <Image
                         src={comment.profiles.avatar_url || generateAvatarUrl(comment.profiles.username)}
                         alt={comment.profiles.username}
