@@ -189,7 +189,10 @@ export default function HomePage() {
         </div>
 
         {loading ? (
-          <LoadingCube text="Loading posts..." fullScreen={false} />
+          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-md p-12 text-center transition-colors duration-300">
+            <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary-500 mx-auto mb-4"></div>
+            <p className="text-gray-600 dark:text-gray-400">Loading posts...</p>
+          </div>
         ) : posts.length === 0 ? (
           <div className="bg-white dark:bg-gray-800 rounded-xl shadow-md p-12 text-center transition-colors duration-300">
             <svg className="w-16 h-16 text-gray-400 dark:text-gray-500 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
