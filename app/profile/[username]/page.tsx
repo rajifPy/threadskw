@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Image from 'next/image'
 import { createClient } from '@/lib/supabase/client'
@@ -19,11 +19,15 @@ export default function ProfilePage() {
   const [posts, setPosts] = useState<PostWithProfile[]>([])
   const [loading, setLoading] = useState(true)
   const [isEditing, setIsEditing] = useState(false)
+  const [uploading, setUploading] = useState(false)
   const [editForm, setEditForm] = useState({
     full_name: '',
     bio: '',
     avatar_url: '',
   })
+  const [avatarFile, setAvatarFile] = useState<File | null>(null)
+  const [avatarPreview, setAvatarPreview] = useState<string>('')
+  const fileInputRef = useRef<HTMLInputElement>(null)
   const supabase = createClient()
 
   const username = params.username as string
@@ -51,6 +55,7 @@ export default function ProfilePage() {
         bio: profileData.bio || '',
         avatar_url: profileData.avatar_url || '',
       })
+      setAvatarPreview(profileData.avatar_url || '')
     } catch (error) {
       console.error('Error fetching profile:', error)
       toast.error('Profil tidak ditemukan')
@@ -118,16 +123,113 @@ export default function ProfilePage() {
     }
   }, [user, username])
 
+  const handleAvatarChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (file) {
+      // Validate file type
+      if (!file.type.startsWith('image/')) {
+        toast.error('File harus berupa gambar')
+        return
+      }
+
+      // Validate file size (max 2MB)
+      if (file.size > 2 * 1024 * 1024) {
+        toast.error('Ukuran gambar maksimal 2MB')
+        return
+      }
+
+      setAvatarFile(file)
+      setAvatarPreview(URL.createObjectURL(file))
+    }
+  }
+
+  const uploadAvatar = async (): Promise<string | null> => {
+    if (!avatarFile) return editForm.avatar_url
+
+    setUploading(true)
+    try {
+      const fileExt = avatarFile.name.split('.').pop()
+      const fileName = `${user!.id}-avatar-${Date.now()}.${fileExt}`
+      const filePath = `avatars/${fileName}`
+
+      console.log('📤 [Avatar] Uploading avatar:', filePath)
+
+      // Delete old avatar if exists and it's from our storage
+      if (profile?.avatar_url && profile.avatar_url.includes('supabase.co/storage')) {
+        try {
+          const urlParts = profile.avatar_url.split('post-images/')
+          if (urlParts.length > 1) {
+            const oldPath = urlParts[1]
+            console.log('🗑️ [Avatar] Deleting old avatar:', oldPath)
+            await supabase.storage
+              .from('post-images')
+              .remove([oldPath])
+          }
+        } catch (err) {
+          console.warn('⚠️ [Avatar] Could not delete old avatar:', err)
+        }
+      }
+
+      // Upload new avatar
+      const { error: uploadError, data } = await supabase.storage
+        .from('post-images')
+        .upload(filePath, avatarFile, {
+          cacheControl: '3600',
+          upsert: false
+        })
+
+      if (uploadError) {
+        console.error('❌ [Avatar] Upload error:', uploadError)
+        throw uploadError
+      }
+
+      console.log('✅ [Avatar] Upload successful:', data)
+
+      const { data: { publicUrl } } = supabase.storage
+        .from('post-images')
+        .getPublicUrl(filePath)
+
+      console.log('🔗 [Avatar] Public URL:', publicUrl)
+
+      return publicUrl
+    } catch (error: any) {
+      console.error('❌ [Avatar] Upload failed:', error)
+      
+      if (error.message?.includes('Duplicate')) {
+        toast.error('File sudah ada, coba lagi')
+      } else if (error.message?.includes('size')) {
+        toast.error('Ukuran file terlalu besar')
+      } else {
+        toast.error('Gagal upload avatar: ' + (error.message || 'Unknown error'))
+      }
+      
+      return null
+    } finally {
+      setUploading(false)
+    }
+  }
+
   const handleUpdateProfile = async (e: React.FormEvent) => {
     e.preventDefault()
 
     try {
+      // Upload avatar if new file selected
+      let avatarUrl = editForm.avatar_url
+      if (avatarFile) {
+        const uploadedUrl = await uploadAvatar()
+        if (uploadedUrl) {
+          avatarUrl = uploadedUrl
+        } else {
+          return // Upload failed
+        }
+      }
+
       const { error } = await supabase
         .from('profiles')
         .update({
           full_name: editForm.full_name,
           bio: editForm.bio,
-          avatar_url: editForm.avatar_url,
+          avatar_url: avatarUrl,
           updated_at: new Date().toISOString(),
         })
         .eq('id', user!.id)
@@ -136,10 +238,19 @@ export default function ProfilePage() {
 
       toast.success('Profil berhasil diupdate')
       setIsEditing(false)
+      setAvatarFile(null)
       fetchProfile()
     } catch (error) {
       console.error('Error updating profile:', error)
       toast.error('Gagal update profil')
+    }
+  }
+
+  const removeAvatar = () => {
+    setAvatarFile(null)
+    setAvatarPreview(editForm.avatar_url || '')
+    if (fileInputRef.current) {
+      fileInputRef.current.value = ''
     }
   }
 
@@ -191,6 +302,51 @@ export default function ProfilePage() {
 
           {isEditing ? (
             <form onSubmit={handleUpdateProfile} className="space-y-4 mt-4">
+              {/* Avatar Upload */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Foto Profil
+                </label>
+                <div className="flex items-center space-x-4">
+                  <div className="relative w-24 h-24 rounded-full overflow-hidden border-2 border-gray-200">
+                    <Image
+                      src={avatarPreview || generateAvatarUrl(profile.username)}
+                      alt="Avatar preview"
+                      fill
+                      className="object-cover"
+                    />
+                  </div>
+                  <div className="flex-1">
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept="image/*"
+                      onChange={handleAvatarChange}
+                      className="hidden"
+                      id="avatar-upload"
+                    />
+                    <label
+                      htmlFor="avatar-upload"
+                      className="inline-block px-4 py-2 bg-gray-100 text-gray-700 rounded-lg font-medium hover:bg-gray-200 transition-colors cursor-pointer"
+                    >
+                      Pilih Gambar
+                    </label>
+                    {avatarFile && (
+                      <button
+                        type="button"
+                        onClick={removeAvatar}
+                        className="ml-2 px-4 py-2 bg-red-100 text-red-600 rounded-lg font-medium hover:bg-red-200 transition-colors"
+                      >
+                        Hapus
+                      </button>
+                    )}
+                    <p className="text-xs text-gray-500 mt-2">
+                      JPG, PNG, atau GIF. Maksimal 2MB.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   Nama Lengkap
@@ -217,29 +373,21 @@ export default function ProfilePage() {
                 <p className="text-xs text-gray-500 mt-1">{editForm.bio.length}/150</p>
               </div>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Avatar URL
-                </label>
-                <input
-                  type="url"
-                  value={editForm.avatar_url}
-                  onChange={(e) => setEditForm({ ...editForm, avatar_url: e.target.value })}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none"
-                  placeholder="https://example.com/avatar.jpg"
-                />
-              </div>
-
               <div className="flex space-x-3">
                 <button
                   type="submit"
-                  className="flex-1 py-2 bg-primary-500 text-white rounded-lg font-medium hover:bg-primary-600 transition-colors"
+                  disabled={uploading}
+                  className="flex-1 py-2 bg-primary-500 text-white rounded-lg font-medium hover:bg-primary-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  Simpan
+                  {uploading ? 'Uploading...' : 'Simpan'}
                 </button>
                 <button
                   type="button"
-                  onClick={() => setIsEditing(false)}
+                  onClick={() => {
+                    setIsEditing(false)
+                    setAvatarFile(null)
+                    setAvatarPreview(profile.avatar_url || '')
+                  }}
                   className="flex-1 py-2 border border-gray-300 text-gray-700 rounded-lg font-medium hover:bg-gray-50 transition-colors"
                 >
                   Batal
