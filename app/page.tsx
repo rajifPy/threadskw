@@ -10,21 +10,40 @@ import CreatePost from '@/components/ui/CreatePost'
 import ThreadCard from '@/components/ui/ThreadCard'
 
 export default function HomePage() {
-  const { user, profile, loading: authLoading } = useAuth()
+  const { user, profile, loading: authLoading, refreshProfile } = useAuth()
   const [posts, setPosts] = useState<PostWithProfile[]>([])
   const [loading, setLoading] = useState(true)
+  const [retryCount, setRetryCount] = useState(0)
   const router = useRouter()
   const supabase = createClient()
 
   useEffect(() => {
     if (!authLoading) {
+      console.log('🔵 [HomePage] Auth loading complete')
+      console.log('🔵 [HomePage] User:', user?.email || 'null')
+      console.log('🔵 [HomePage] Profile:', profile?.username || 'null')
+      
       if (!user) {
+        console.log('⚠️ [HomePage] No user, redirecting to login')
         router.push('/login')
       } else if (!profile) {
-        router.push('/debug')
+        console.log('⚠️ [HomePage] User exists but no profile')
+        
+        // Try to refresh profile a few times before giving up
+        if (retryCount < 3) {
+          console.log(`🔄 [HomePage] Attempting to refresh profile (attempt ${retryCount + 1}/3)`)
+          setTimeout(() => {
+            refreshProfile().then(() => {
+              setRetryCount(prev => prev + 1)
+            })
+          }, 1000 * (retryCount + 1)) // Exponential backoff: 1s, 2s, 3s
+        } else {
+          console.log('❌ [HomePage] Profile refresh failed after 3 attempts, redirecting to debug')
+          router.push('/debug')
+        }
       }
     }
-  }, [user, profile, authLoading, router])
+  }, [user, profile, authLoading, router, retryCount, refreshProfile])
 
   const fetchPosts = async () => {
     try {
@@ -94,6 +113,7 @@ export default function HomePage() {
 
   useEffect(() => {
     if (user && profile) {
+      console.log('✅ [HomePage] Both user and profile available, fetching posts')
       fetchPosts()
 
       // Real-time subscription
@@ -111,12 +131,34 @@ export default function HomePage() {
     }
   }, [user, profile])
 
-  if (authLoading || !user || !profile) {
+  // Show loading state
+  if (authLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary-500"></div>
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary-500 mx-auto mb-4"></div>
+          <p className="text-gray-600">Loading authentication...</p>
+        </div>
       </div>
     )
+  }
+
+  // Show retry state
+  if (user && !profile && retryCount < 3) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary-500 mx-auto mb-4"></div>
+          <p className="text-gray-600">Loading profile...</p>
+          <p className="text-gray-400 text-sm mt-2">Attempt {retryCount + 1} of 3</p>
+        </div>
+      </div>
+    )
+  }
+
+  // Don't render if no user or profile
+  if (!user || !profile) {
+    return null
   }
 
   return (
