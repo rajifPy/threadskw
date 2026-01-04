@@ -13,12 +13,14 @@ export default function Navbar() {
   const { user, profile, loading } = useAuth()
   const [isLoggingOut, setIsLoggingOut] = useState(false)
   const [showProfileMenu, setShowProfileMenu] = useState(false)
+  const [showMobileMenu, setShowMobileMenu] = useState(false)
   const [imageLoaded, setImageLoaded] = useState(false)
   const router = useRouter()
   const pathname = usePathname()
 
   const handleSignOut = async () => {
     setShowProfileMenu(false)
+    setShowMobileMenu(false)
     setIsLoggingOut(true)
   }
 
@@ -171,9 +173,71 @@ export default function Navbar() {
             <span className="text-base font-semibold text-gray-900 dark:text-white">Arek Kost</span>
           </Link>
 
-          {/* Theme Toggle on Mobile Top */}
-          <ThemeToggle />
+          <div className="flex items-center space-x-2">
+            {/* Theme Toggle on Mobile Top */}
+            <ThemeToggle />
+            
+            {/* Mobile Menu Button */}
+            <button
+              onClick={() => setShowMobileMenu(!showMobileMenu)}
+              className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors"
+            >
+              <svg className="w-6 h-6 text-gray-700 dark:text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                {showMobileMenu ? (
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                ) : (
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+                )}
+              </svg>
+            </button>
+          </div>
         </div>
+
+        {/* Mobile Dropdown Menu */}
+        {showMobileMenu && (
+          <>
+            <div 
+              className="fixed inset-0 bg-black/20 z-40 animate-in fade-in duration-200"
+              onClick={() => setShowMobileMenu(false)}
+            />
+            <div className="absolute top-full left-0 right-0 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 shadow-lg z-50 animate-in slide-in-from-top-2 duration-200">
+              <div className="p-4 space-y-2">
+                <Link
+                  href={`/profile/${profile?.username}`}
+                  className="flex items-center space-x-3 p-3 hover:bg-gray-50 dark:hover:bg-gray-700 rounded-lg transition-colors"
+                  onClick={() => setShowMobileMenu(false)}
+                >
+                  <div className="relative w-10 h-10 rounded-full overflow-hidden">
+                    <Image
+                      src={profile?.avatar_url || generateAvatarUrl(profile?.username || 'user')}
+                      alt="Profile"
+                      fill
+                      className="object-cover"
+                    />
+                  </div>
+                  <div className="flex-1">
+                    <p className="font-semibold text-gray-900 dark:text-white text-sm">
+                      {profile?.full_name || profile?.username}
+                    </p>
+                    <p className="text-gray-500 dark:text-gray-400 text-xs">@{profile?.username}</p>
+                  </div>
+                </Link>
+
+                <div className="border-t border-gray-200 dark:border-gray-700 my-2"></div>
+
+                <button
+                  onClick={handleSignOut}
+                  className="w-full flex items-center space-x-3 p-3 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors"
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+                  </svg>
+                  <span className="font-medium">Logout</span>
+                </button>
+              </div>
+            </div>
+          </>
+        )}
       </div>
 
       {/* Mobile Bottom Navigation */}
