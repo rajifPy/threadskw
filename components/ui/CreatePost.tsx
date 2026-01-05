@@ -16,6 +16,13 @@ interface CreatePostProps {
   onCancel?: () => void
 }
 
+interface MediaFile {
+  file: File
+  preview: string
+  type: 'image' | 'video'
+  size: number
+}
+
 export default function CreatePost({ 
   onPostCreated, 
   editMode = false,
@@ -26,38 +33,30 @@ export default function CreatePost({
 }: CreatePostProps) {
   const { user, profile } = useAuth()
   const [content, setContent] = useState(initialContent)
-  const [image, setImage] = useState<File | null>(null)
-  const [imagePreview, setImagePreview] = useState<string>(initialImageUrl)
+  const [mediaFiles, setMediaFiles] = useState<MediaFile[]>([])
   const [loading, setLoading] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const supabase = createClient()
 
-  // ✅ TAMBAHAN: Audio refs untuk sound effects
   const truckSoundRef = useRef<HTMLAudioElement | null>(null)
   const successSoundRef = useRef<HTMLAudioElement | null>(null)
 
   const MAX_CHARS = 500
+  const MAX_TOTAL_SIZE = 5 * 1024 * 1024 // 5MB
+  const MAX_FILES = 4 // Maximum 4 files
 
-  // ✅ TAMBAHAN: Initialize audio elements
+  // Initialize audio
   useEffect(() => {
-    console.log('🎵 Initializing audio...')
-    
-    // Gunakan path absolut dari public folder
     truckSoundRef.current = new Audio('/sound/volvo-engine-431665.mp3')
     successSoundRef.current = new Audio('/sound/successed-295058.mp3')
     
-    // Set volume
     if (truckSoundRef.current) truckSoundRef.current.volume = 0.7
     if (successSoundRef.current) successSoundRef.current.volume = 0.8
     
-    // Preload audio
     truckSoundRef.current.load()
     successSoundRef.current.load()
     
-    console.log('✅ Audio initialized')
-    
     return () => {
-      // Cleanup
       if (truckSoundRef.current) {
         truckSoundRef.current.pause()
         truckSoundRef.current = null
@@ -69,63 +68,114 @@ export default function CreatePost({
     }
   }, [])
 
-  // ✅ TAMBAHAN: Function untuk play truck sound
+  // Load initial media if editing
+  useEffect(() => {
+    if (editMode && initialImageUrl) {
+      // For edit mode, we'll keep the old single image approach
+      // You can enhance this to load multiple images if stored as JSON
+    }
+  }, [editMode, initialImageUrl])
+
   const playTruckSound = () => {
-    console.log('🔊 Attempting to play truck sound...')
     if (truckSoundRef.current) {
-      console.log('✅ Truck sound ref exists')
       truckSoundRef.current.currentTime = 0
-      truckSoundRef.current.play()
-        .then(() => console.log('✅ Truck sound playing!'))
-        .catch(err => console.error('❌ Truck sound error:', err))
-    } else {
-      console.error('❌ Truck sound ref is null')
+      truckSoundRef.current.play().catch(err => console.error('Truck sound error:', err))
     }
   }
 
-  // ✅ TAMBAHAN: Function untuk play success sound
   const playSuccessSound = () => {
-    console.log('🔊 Attempting to play success sound...')
     if (successSoundRef.current) {
-      console.log('✅ Success sound ref exists')
       successSoundRef.current.currentTime = 0
-      successSoundRef.current.play()
-        .then(() => console.log('✅ Success sound playing!'))
-        .catch(err => console.error('❌ Success sound error:', err))
-    } else {
-      console.error('❌ Success sound ref is null')
+      successSoundRef.current.play().catch(err => console.error('Success sound error:', err))
     }
   }
 
-  const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (file) {
-      if (file.size > 5 * 1024 * 1024) {
-        toast.error('Ukuran gambar maksimal 5MB')
-        return
+  const getTotalSize = (files: MediaFile[]) => {
+    return files.reduce((total, file) => total + file.size, 0)
+  }
+
+  const formatFileSize = (bytes: number) => {
+    if (bytes === 0) return '0 B'
+    const k = 1024
+    const sizes = ['B', 'KB', 'MB']
+    const i = Math.floor(Math.log(bytes) / Math.log(k))
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i]
+  }
+
+  const handleMediaChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || [])
+    
+    if (files.length === 0) return
+
+    // Check if adding these files would exceed max count
+    if (mediaFiles.length + files.length > MAX_FILES) {
+      toast.error(`Maksimal ${MAX_FILES} file`)
+      return
+    }
+
+    const newMediaFiles: MediaFile[] = []
+    let totalSize = getTotalSize(mediaFiles)
+
+    for (const file of files) {
+      // Validate file type
+      const isImage = file.type.startsWith('image/')
+      const isVideo = file.type.startsWith('video/')
+      
+      if (!isImage && !isVideo) {
+        toast.error(`${file.name} bukan file gambar/video`)
+        continue
       }
-      setImage(file)
-      setImagePreview(URL.createObjectURL(file))
-    }
-  }
 
-  const removeImage = () => {
-    setImage(null)
-    setImagePreview('')
+      // Check if adding this file would exceed size limit
+      if (totalSize + file.size > MAX_TOTAL_SIZE) {
+        toast.error(`Total ukuran file tidak boleh lebih dari 5MB. Saat ini: ${formatFileSize(totalSize + file.size)}`)
+        break
+      }
+
+      totalSize += file.size
+
+      newMediaFiles.push({
+        file,
+        preview: URL.createObjectURL(file),
+        type: isImage ? 'image' : 'video',
+        size: file.size
+      })
+    }
+
+    if (newMediaFiles.length > 0) {
+      setMediaFiles(prev => [...prev, ...newMediaFiles])
+      toast.success(`${newMediaFiles.length} file ditambahkan`)
+    }
+
+    // Reset input
     if (fileInputRef.current) {
       fileInputRef.current.value = ''
     }
   }
 
-  const uploadImage = async (file: File): Promise<string | null> => {
+  const removeMedia = (index: number) => {
+    setMediaFiles(prev => {
+      const newFiles = [...prev]
+      // Revoke URL to free memory
+      URL.revokeObjectURL(newFiles[index].preview)
+      newFiles.splice(index, 1)
+      return newFiles
+    })
+    toast.success('File dihapus')
+  }
+
+  const uploadMedia = async (file: File): Promise<string | null> => {
     try {
       const fileExt = file.name.split('.').pop()
-      const fileName = `${user!.id}-${Date.now()}.${fileExt}`
+      const fileName = `${user!.id}-${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExt}`
       const filePath = `${fileName}`
 
       const { error: uploadError } = await supabase.storage
         .from('post-images')
-        .upload(filePath, file)
+        .upload(filePath, file, {
+          cacheControl: '3600',
+          upsert: false
+        })
 
       if (uploadError) throw uploadError
 
@@ -135,7 +185,7 @@ export default function CreatePost({
 
       return publicUrl
     } catch (error) {
-      console.error('Error uploading image:', error)
+      console.error('Error uploading media:', error)
       return null
     }
   }
@@ -149,38 +199,49 @@ export default function CreatePost({
     }
 
     setLoading(true)
-    playTruckSound() // ✅ TAMBAHAN: Play truck sound saat mulai loading
+    playTruckSound()
     const startTime = Date.now()
 
     try {
-      let imageUrl = imagePreview
+      let mediaUrls: string[] = []
 
-      if (image) {
-        const uploadedUrl = await uploadImage(image)
-        if (uploadedUrl) {
-          imageUrl = uploadedUrl
+      // Upload all media files
+      if (mediaFiles.length > 0) {
+        toast.loading(`Uploading ${mediaFiles.length} file...`, { id: 'upload' })
+        
+        const uploadPromises = mediaFiles.map(media => uploadMedia(media.file))
+        const results = await Promise.all(uploadPromises)
+        
+        mediaUrls = results.filter((url): url is string => url !== null)
+        
+        if (mediaUrls.length < mediaFiles.length) {
+          toast.error('Beberapa file gagal diupload', { id: 'upload' })
+        } else {
+          toast.success('Semua file berhasil diupload!', { id: 'upload' })
         }
       }
+
+      // Store media URLs as JSON string
+      const mediaUrlsJson = mediaUrls.length > 0 ? JSON.stringify(mediaUrls) : null
 
       if (editMode && postId) {
         const { error } = await supabase
           .from('posts')
           .update({
             content: content.trim(),
-            image_url: imageUrl || null,
+            image_url: mediaUrlsJson,
             updated_at: new Date().toISOString(),
           })
           .eq('id', postId)
 
         if (error) throw error
         
-        // ✅ Ensure minimum 8 seconds delay (sesuai durasi sound volvo)
         const elapsed = Date.now() - startTime
         if (elapsed < 9000) {
           await new Promise(resolve => setTimeout(resolve, 9000 - elapsed))
         }
         
-        playSuccessSound() // ✅ TAMBAHAN: Play success sound setelah berhasil
+        playSuccessSound()
         toast.success('Post berhasil diupdate!')
       } else {
         const { error } = await supabase
@@ -188,24 +249,25 @@ export default function CreatePost({
           .insert({
             user_id: user!.id,
             content: content.trim(),
-            image_url: imageUrl || null,
+            image_url: mediaUrlsJson,
           })
 
         if (error) throw error
         
-        // ✅ Ensure minimum 8 seconds delay (sesuai durasi sound volvo)
         const elapsed = Date.now() - startTime
         if (elapsed < 9000) {
           await new Promise(resolve => setTimeout(resolve, 9000 - elapsed))
         }
         
-        playSuccessSound() // ✅ TAMBAHAN: Play success sound setelah berhasil
+        playSuccessSound()
         toast.success('Post berhasil dibuat!')
       }
 
+      // Cleanup
+      mediaFiles.forEach(media => URL.revokeObjectURL(media.preview))
       setContent('')
-      setImage(null)
-      setImagePreview('')
+      setMediaFiles([])
+      
       if (fileInputRef.current) {
         fileInputRef.current.value = ''
       }
@@ -221,9 +283,12 @@ export default function CreatePost({
     }
   }
 
+  const totalSize = getTotalSize(mediaFiles)
+  const remainingSize = MAX_TOTAL_SIZE - totalSize
+
   return (
     <>
-      {/* Loading Overlay saat Posting - 5 DETIK */}
+      {/* Loading Overlay */}
       {loading && (
         <div className="fixed inset-0 bg-black/50 dark:bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center">
           <div className="bg-white dark:bg-gray-800 rounded-2xl p-8 shadow-2xl max-w-sm mx-4 animate-in fade-in zoom-in duration-300">
@@ -397,7 +462,6 @@ export default function CreatePost({
                 Sedang mengirim post Anda 🚚
               </p>
               
-              {/* Progress Bar */}
               <div className="progress-bar">
                 <div className="progress-bar-fill"></div>
               </div>
@@ -407,92 +471,156 @@ export default function CreatePost({
       )}
 
       <div className="bg-white dark:bg-gray-800 rounded-xl shadow-md p-4 mb-6 transition-colors duration-300">
-      <div className="flex items-start space-x-3">
-        <div className="relative w-10 h-10 rounded-full overflow-hidden flex-shrink-0">
-          <Image
-            src={profile?.avatar_url || generateAvatarUrl(profile?.username || 'user')}
-            alt="Avatar"
-            fill
-            className="object-cover"
-          />
-        </div>
-        
-        <form onSubmit={handleSubmit} className="flex-1">
-          <textarea
-            value={content}
-            onChange={(e) => setContent(e.target.value)}
-            placeholder="Apa pendapat kamu?"
-            className="w-full resize-none border-none focus:outline-none text-gray-800 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 bg-transparent"
-            rows={3}
-            maxLength={MAX_CHARS}
-          />
-
-          {imagePreview && (
-            <div className="relative mt-3 rounded-lg overflow-hidden">
-              <Image
-                src={imagePreview}
-                alt="Preview"
-                width={500}
-                height={300}
-                className="w-full h-auto max-h-96 object-cover"
-              />
-              <button
-                type="button"
-                onClick={removeImage}
-                className="absolute top-2 right-2 bg-red-500 text-white rounded-full w-8 h-8 flex items-center justify-center hover:bg-red-600 transition-colors"
-              >
-                ×
-              </button>
-            </div>
-          )}
-
-          <div className="flex items-center justify-between mt-3 pt-3 border-t border-gray-100 dark:border-gray-700">
-            <div className="flex items-center space-x-2">
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/*"
-                onChange={handleImageChange}
-                className="hidden"
-                id="image-upload"
-              />
-              <label
-                htmlFor="image-upload"
-                className="cursor-pointer text-primary-600 dark:text-primary-400 hover:text-primary-700 dark:hover:text-primary-300 transition-colors"
-              >
-                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                </svg>
-              </label>
-              
-              <span className={`text-sm ${content.length > MAX_CHARS - 50 ? 'text-red-500' : 'text-gray-400 dark:text-gray-500'}`}>
-                {content.length}/{MAX_CHARS}
-              </span>
-            </div>
-
-            <div className="flex items-center space-x-2">
-              {editMode && onCancel && (
-                <button
-                  type="button"
-                  onClick={onCancel}
-                  className="px-4 py-2 text-gray-600 dark:text-gray-300 hover:text-gray-800 dark:hover:text-gray-100 font-medium transition-colors"
-                  disabled={loading}
-                >
-                  Batal
-                </button>
-              )}
-              <button
-                type="submit"
-                disabled={loading || !content.trim()}
-                className="px-6 py-2 bg-primary-500 text-white rounded-full font-medium hover:bg-primary-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-              >
-                {loading ? 'Loading...' : editMode ? 'Update' : 'Posting'}
-              </button>
-            </div>
+        <div className="flex items-start space-x-3">
+          <div className="relative w-10 h-10 rounded-full overflow-hidden flex-shrink-0">
+            <Image
+              src={profile?.avatar_url || generateAvatarUrl(profile?.username || 'user')}
+              alt="Avatar"
+              fill
+              className="object-cover"
+            />
           </div>
-        </form>
+          
+          <form onSubmit={handleSubmit} className="flex-1">
+            <textarea
+              value={content}
+              onChange={(e) => setContent(e.target.value)}
+              placeholder="Apa pendapat kamu?"
+              className="w-full resize-none border-none focus:outline-none text-gray-800 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 bg-transparent"
+              rows={3}
+              maxLength={MAX_CHARS}
+            />
+
+            {/* Media Preview Grid */}
+            {mediaFiles.length > 0 && (
+              <div className={`mt-3 grid gap-2 ${
+                mediaFiles.length === 1 ? 'grid-cols-1' :
+                mediaFiles.length === 2 ? 'grid-cols-2' :
+                mediaFiles.length === 3 ? 'grid-cols-2' :
+                'grid-cols-2'
+              }`}>
+                {mediaFiles.map((media, index) => (
+                  <div 
+                    key={index} 
+                    className={`relative rounded-lg overflow-hidden group ${
+                      mediaFiles.length === 3 && index === 2 ? 'col-span-2' : ''
+                    }`}
+                  >
+                    {media.type === 'image' ? (
+                      <Image
+                        src={media.preview}
+                        alt={`Preview ${index + 1}`}
+                        width={300}
+                        height={200}
+                        className="w-full h-48 object-cover"
+                      />
+                    ) : (
+                      <video
+                        src={media.preview}
+                        className="w-full h-48 object-cover"
+                        controls
+                      />
+                    )}
+                    
+                    {/* Remove button */}
+                    <button
+                      type="button"
+                      onClick={() => removeMedia(index)}
+                      className="absolute top-2 right-2 bg-red-500 text-white rounded-full w-8 h-8 flex items-center justify-center hover:bg-red-600 transition-colors opacity-0 group-hover:opacity-100"
+                    >
+                      ×
+                    </button>
+                    
+                    {/* File info */}
+                    <div className="absolute bottom-2 left-2 bg-black/70 text-white text-xs px-2 py-1 rounded">
+                      {formatFileSize(media.size)}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div className="flex items-center justify-between mt-3 pt-3 border-t border-gray-100 dark:border-gray-700">
+              <div className="flex items-center space-x-3">
+                {/* Upload Button */}
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*,video/*"
+                  onChange={handleMediaChange}
+                  className="hidden"
+                  id="media-upload"
+                  multiple
+                  disabled={mediaFiles.length >= MAX_FILES}
+                />
+                <label
+                  htmlFor="media-upload"
+                  className={`cursor-pointer transition-colors ${
+                    mediaFiles.length >= MAX_FILES
+                      ? 'text-gray-300 dark:text-gray-600 cursor-not-allowed'
+                      : 'text-primary-600 dark:text-primary-400 hover:text-primary-700 dark:hover:text-primary-300'
+                  }`}
+                  title={mediaFiles.length >= MAX_FILES ? `Maksimal ${MAX_FILES} file` : 'Upload media'}
+                >
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                  </svg>
+                </label>
+                
+                {/* File counter and size info */}
+                <div className="text-xs">
+                  <div className="flex items-center space-x-2">
+                    <span className={`${mediaFiles.length > 0 ? 'text-primary-600 dark:text-primary-400' : 'text-gray-400 dark:text-gray-500'}`}>
+                      {mediaFiles.length}/{MAX_FILES} file
+                    </span>
+                    {mediaFiles.length > 0 && (
+                      <>
+                        <span className="text-gray-300 dark:text-gray-600">|</span>
+                        <span className={`${totalSize > MAX_TOTAL_SIZE * 0.8 ? 'text-orange-500' : 'text-gray-500 dark:text-gray-400'}`}>
+                          {formatFileSize(totalSize)}/{formatFileSize(MAX_TOTAL_SIZE)}
+                        </span>
+                      </>
+                    )}
+                  </div>
+                  {mediaFiles.length > 0 && remainingSize < MAX_TOTAL_SIZE * 0.2 && (
+                    <div className="text-orange-500 mt-0.5">
+                      Sisa: {formatFileSize(remainingSize)}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="flex items-center space-x-3">
+                {/* Character counter */}
+                <span className={`text-sm ${content.length > MAX_CHARS - 50 ? 'text-red-500' : 'text-gray-400 dark:text-gray-500'}`}>
+                  {content.length}/{MAX_CHARS}
+                </span>
+
+                {/* Cancel button for edit mode */}
+                {editMode && onCancel && (
+                  <button
+                    type="button"
+                    onClick={onCancel}
+                    className="px-4 py-2 text-gray-600 dark:text-gray-300 hover:text-gray-800 dark:hover:text-gray-100 font-medium transition-colors"
+                    disabled={loading}
+                  >
+                    Batal
+                  </button>
+                )}
+
+                {/* Submit button */}
+                <button
+                  type="submit"
+                  disabled={loading || !content.trim()}
+                  className="px-6 py-2 bg-primary-500 text-white rounded-full font-medium hover:bg-primary-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  {loading ? 'Loading...' : editMode ? 'Update' : 'Posting'}
+                </button>
+              </div>
+            </div>
+          </form>
+        </div>
       </div>
-    </div>
     </>
   )
 }
