@@ -10,7 +10,6 @@ import toast from 'react-hot-toast'
 export default function LogoutPage() {
   const [loading, setLoading] = useState(false)
   const [mounted, setMounted] = useState(false)
-  const [showLoadingCube, setShowLoadingCube] = useState(false)
   const router = useRouter()
   const { user, profile } = useAuth()
   const supabase = createClient()
@@ -22,24 +21,15 @@ export default function LogoutPage() {
 
   const handleLogout = async () => {
     setLoading(true)
-    setShowLoadingCube(true)
     
     try {
-      // Minimum 2 detik untuk animasi washing machine
-      const startTime = Date.now()
-      
       const { error } = await supabase.auth.signOut()
       
       if (error) throw error
       
-      const elapsed = Date.now() - startTime
-      const remainingTime = Math.max(0, 2000 - elapsed)
-      
-      await new Promise(resolve => setTimeout(resolve, remainingTime))
-      
       toast.success('Logout berhasil!')
       
-      // Redirect
+      // Redirect after successful logout
       setTimeout(() => {
         router.push('/login')
         router.refresh()
@@ -49,7 +39,6 @@ export default function LogoutPage() {
       console.error('Logout error:', error)
       toast.error('Gagal logout: ' + error.message)
       setLoading(false)
-      setShowLoadingCube(false)
     }
   }
 
@@ -61,8 +50,8 @@ export default function LogoutPage() {
     }, 300)
   }
 
-  // Show washing machine animation saat logout
-  if (showLoadingCube) {
+  // Show loading cube animation while logging out
+  if (loading) {
     return <LoadingCube text="Logging out..." />
   }
 
