@@ -375,8 +375,6 @@ function LoginForm() {
           <h2 className="text-3xl font-bold text-gray-900">Sharing Opini Arek Kost</h2>
           <p className="mt-2 text-gray-600">Platform berbagi cerita, keluh kesah, dan tips untuk para perantau</p>
           <p className="mt-2 text-gray-600">Ceritakan pengalaman kost-mu 🫂</p>
-          <p className="mt-2 text-gray-600">Terhubung dengan sesama anak rantau 🤝</p>
-          <p className="mt-2 text-gray-600">Masuk ke akun Anda!</p>
         </div>
 
         <form onSubmit={handleEmailLogin} className="mt-8 space-y-6">
