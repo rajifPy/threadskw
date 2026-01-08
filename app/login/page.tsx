@@ -1,3 +1,5 @@
+'use client'
+
 import { useState } from 'react';
 
 export default function LoginLandingPage() {
@@ -547,3 +549,5 @@ export default function LoginLandingPage() {
     </div>
   );
 }
+
+export const dynamic = 'force-dynamic'
