@@ -224,7 +224,7 @@ export default function RegisterPage() {
                 value={fullName}
                 onChange={(e) => setFullName(e.target.value)}
                 className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none transition"
-                placeholder="John Doe"
+                placeholder="Bahlil Lahadalia"
               />
             </div>
 
@@ -239,7 +239,7 @@ export default function RegisterPage() {
                 value={username}
                 onChange={(e) => setUsername(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ''))}
                 className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none transition"
-                placeholder="johndoe"
+                placeholder="bahlil gaul"
               />
               <p className="mt-1 text-xs text-gray-500">Hanya huruf kecil, angka, dan underscore</p>
             </div>
