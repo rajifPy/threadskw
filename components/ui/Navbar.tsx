@@ -6,36 +6,21 @@ import { useAuth } from '@/components/layout/AuthProvider'
 import { useState } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
 import { generateAvatarUrl } from '@/utils/helpers'
-import LogoutAnimation from './LogoutAnimation'
 import ThemeToggle from './ThemeToggle'
 
 export default function Navbar() {
   const { user, profile, loading } = useAuth()
-  const [isLoggingOut, setIsLoggingOut] = useState(false)
   const [showProfileMenu, setShowProfileMenu] = useState(false)
   const [showMobileMenu, setShowMobileMenu] = useState(false)
   const [imageLoaded, setImageLoaded] = useState(false)
   const router = useRouter()
   const pathname = usePathname()
 
-  const handleSignOut = async () => {
+  const handleSignOut = () => {
     setShowProfileMenu(false)
     setShowMobileMenu(false)
-    setIsLoggingOut(true)
-  }
-
-  const completeLogout = async () => {
-    const { signOut } = await import('@/components/layout/AuthProvider')
-    router.push('/login')
-  }
-
-  if (isLoggingOut) {
-    return (
-      <LogoutAnimation 
-        text="See you soon! 👋"
-        onComplete={completeLogout}
-      />
-    )
+    // Redirect to logout page
+    router.push('/logout')
   }
 
   const isActive = (path: string) => {
@@ -43,7 +28,7 @@ export default function Navbar() {
   }
 
   // Don't render navbar on auth pages
-  const authPages = ['/login', '/register', '/auth/callback']
+  const authPages = ['/login', '/register', '/auth/callback', '/logout']
   if (authPages.some(page => pathname?.startsWith(page))) {
     return null
   }
