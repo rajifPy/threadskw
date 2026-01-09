@@ -11,8 +11,8 @@ import Link from 'next/link'
 import Image from 'next/image'
 import { getRelativeTime, generateAvatarUrl } from '@/utils/helpers'
 import toast from 'react-hot-toast'
-import EnhancedCommentBox from '@/components/ui/EnhancedCommentBox'
-import EnhancedCommentCard from '@/components/ui/EnhancedCommentCard'
+import EnhancedCommentBox from '@/components/ui/EnhancedCommentCard'
+import EnhancedCommentCard from '@/components/ui/EnhancedCommentCard.tsx'
 
 interface CommentWithProfile {
   id: number
