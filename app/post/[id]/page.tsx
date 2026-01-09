@@ -1,3 +1,4 @@
+// app/post/[id]/page.tsx
 'use client'
 
 import { useEffect, useState } from 'react'
@@ -10,6 +11,8 @@ import Link from 'next/link'
 import Image from 'next/image'
 import { getRelativeTime, generateAvatarUrl } from '@/utils/helpers'
 import toast from 'react-hot-toast'
+import EnhancedCommentBox from '@/components/ui/EnhancedCommentBox'
+import EnhancedCommentCard from '@/components/ui/EnhancedCommentCard'
 
 interface CommentWithProfile {
   id: number
@@ -17,6 +20,7 @@ interface CommentWithProfile {
   user_id: string
   content: string
   created_at: string
+  metadata?: string | null
   profiles: {
     id: string
     username: string
@@ -31,9 +35,7 @@ export default function PostDetailPage() {
   const { user, loading: authLoading } = useAuth()
   const [post, setPost] = useState<PostWithProfile | null>(null)
   const [comments, setComments] = useState<CommentWithProfile[]>([])
-  const [newComment, setNewComment] = useState('')
   const [loading, setLoading] = useState(true)
-  const [submitting, setSubmitting] = useState(false)
   const [likesCount, setLikesCount] = useState(0)
   const [isLiked, setIsLiked] = useState(false)
   const supabase = createClient()
@@ -101,6 +103,7 @@ export default function PostDetailPage() {
 
   const fetchComments = async () => {
     try {
+      // IMPORTANT: Include metadata column
       const { data, error } = await supabase
         .from('comments')
         .select(`
@@ -169,56 +172,6 @@ export default function PostDetailPage() {
       }
     } catch (error) {
       console.error('Error toggling like:', error)
-    }
-  }
-
-  const handleSubmitComment = async (e: React.FormEvent) => {
-    e.preventDefault()
-    
-    if (!newComment.trim()) {
-      toast.error('Komentar tidak boleh kosong')
-      return
-    }
-
-    setSubmitting(true)
-
-    try {
-      const { error } = await supabase
-        .from('comments')
-        .insert({
-          post_id: parseInt(postId),
-          user_id: user!.id,
-          content: newComment.trim(),
-        })
-
-      if (error) throw error
-
-      setNewComment('')
-      toast.success('Komentar berhasil ditambahkan')
-    } catch (error) {
-      console.error('Error creating comment:', error)
-      toast.error('Gagal menambahkan komentar')
-    } finally {
-      setSubmitting(false)
-    }
-  }
-
-  const handleDeleteComment = async (commentId: number) => {
-    if (!confirm('Yakin ingin menghapus komentar ini?')) return
-
-    try {
-      const { error } = await supabase
-        .from('comments')
-        .delete()
-        .eq('id', commentId)
-
-      if (error) throw error
-
-      toast.success('Komentar berhasil dihapus')
-      fetchComments()
-    } catch (error) {
-      console.error('Error deleting comment:', error)
-      toast.error('Gagal menghapus komentar')
     }
   }
 
@@ -311,31 +264,8 @@ export default function PostDetailPage() {
           </div>
         </div>
 
-        {/* Comment Form */}
-        <div className="bg-white dark:bg-gray-800 rounded-xl shadow-md p-4 mb-6 transition-colors duration-300">
-          <form onSubmit={handleSubmitComment}>
-            <textarea
-              value={newComment}
-              onChange={(e) => setNewComment(e.target.value)}
-              placeholder="Tulis komentar..."
-              className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none resize-none"
-              rows={3}
-              maxLength={300}
-            />
-            <div className="flex items-center justify-between mt-2">
-              <span className={`text-sm ${newComment.length > 250 ? 'text-red-500' : 'text-gray-400 dark:text-gray-500'}`}>
-                {newComment.length}/300
-              </span>
-              <button
-                type="submit"
-                disabled={submitting || !newComment.trim()}
-                className="px-6 py-2 bg-primary-500 text-white rounded-full font-medium hover:bg-primary-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-              >
-                {submitting ? 'Posting...' : 'Kirim'}
-              </button>
-            </div>
-          </form>
-        </div>
+        {/* Enhanced Comment Box with Stickers & VN */}
+        <EnhancedCommentBox postId={parseInt(postId)} onCommentCreated={fetchComments} />
 
         {/* Comments */}
         <div className="bg-white dark:bg-gray-800 rounded-xl shadow-md p-6 transition-colors duration-300">
@@ -348,47 +278,16 @@ export default function PostDetailPage() {
           ) : (
             <div className="space-y-0">
               {comments.map((comment, index) => (
-                <div key={comment.id} className="relative flex items-start space-x-3 pb-6">
+                <div key={comment.id}>
                   {/* Thread Line */}
                   {index < comments.length - 1 && (
                     <div className="absolute left-[19px] top-[52px] bottom-0 w-[2px] bg-gray-300 dark:bg-gray-600"></div>
                   )}
-
-                  {/* Avatar */}
-                  <Link href={`/profile/${comment.profiles.username}`}>
-                    <div className="relative w-10 h-10 rounded-full overflow-hidden flex-shrink-0 z-10 ring-4 ring-white dark:ring-gray-800">
-                      <Image
-                        src={comment.profiles.avatar_url || generateAvatarUrl(comment.profiles.username)}
-                        alt={comment.profiles.username}
-                        fill
-                        className="object-cover"
-                      />
-                    </div>
-                  </Link>
-
-                  {/* Comment Content */}
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center justify-between mb-1">
-                      <Link href={`/profile/${comment.profiles.username}`} className="flex items-center space-x-2">
-                        <span className="font-semibold text-gray-900 dark:text-white text-sm">
-                          {comment.profiles.full_name || comment.profiles.username}
-                        </span>
-                        <span className="text-gray-500 dark:text-gray-400 text-sm">@{comment.profiles.username}</span>
-                      </Link>
-                      <span className="text-xs text-gray-400 dark:text-gray-500">{getRelativeTime(comment.created_at)}</span>
-                    </div>
-
-                    <p className="text-gray-800 dark:text-gray-100 text-sm whitespace-pre-wrap mb-2">{comment.content}</p>
-
-                    {user?.id === comment.user_id && (
-                      <button
-                        onClick={() => handleDeleteComment(comment.id)}
-                        className="text-xs text-red-500 dark:text-red-400 hover:text-red-600 dark:hover:text-red-300 transition-colors"
-                      >
-                        Hapus
-                      </button>
-                    )}
-                  </div>
+                  
+                  <EnhancedCommentCard 
+                    comment={comment} 
+                    onDelete={fetchComments}
+                  />
                 </div>
               ))}
             </div>
