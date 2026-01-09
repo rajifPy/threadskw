@@ -1,4 +1,3 @@
-// components/ui/EnhancedCommentCard.tsx
 'use client'
 
 import { useState } from 'react'
